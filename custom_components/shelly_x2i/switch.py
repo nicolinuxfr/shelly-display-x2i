@@ -104,13 +104,16 @@ class ShellyScreenPowerSwitch(ShellyX2iBaseEntity, SwitchEntity, RestoreEntity):
 
     async def async_turn_off(self, **kwargs) -> None:
         """Turn the screen off."""
-        current = self.coordinator.data.get("brightness_config")
-        if not isinstance(current, (int, float)):
-            current = self.coordinator.data.get("brightness")
-        if not isinstance(current, (int, float)):
-            current = self.coordinator.last_nonzero_brightness_level
-        if isinstance(current, (int, float)) and int(round(float(current))) > 0:
-            self.coordinator.set_pending_brightness_level(int(round(float(current))))
+        # Preserve the most recent explicit user target if one is already pending.
+        current_pending = self.coordinator.pending_brightness_level
+        if not isinstance(current_pending, int) or current_pending <= 0:
+            current = self.coordinator.data.get("brightness_config")
+            if not isinstance(current, (int, float)):
+                current = self.coordinator.data.get("brightness")
+            if not isinstance(current, (int, float)):
+                current = self.coordinator.last_nonzero_brightness_level
+            if isinstance(current, (int, float)) and int(round(float(current))) > 0:
+                self.coordinator.set_pending_brightness_level(int(round(float(current))))
 
         self._optimistic_state = False
         self.coordinator.set_expected_screen_on(False)
