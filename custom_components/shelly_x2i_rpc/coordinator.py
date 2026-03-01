@@ -32,7 +32,15 @@ def _parse_screen_on(status: dict[str, Any]) -> bool | None:
 
 
 def _parse_brightness(config: dict[str, Any], status: dict[str, Any]) -> int | None:
-    """Parse brightness, preferring live status over potentially stale config."""
+    """Backward-compatible parsed brightness value."""
+    status_level = _parse_brightness_status(status)
+    if isinstance(status_level, int):
+        return status_level
+    return _parse_brightness_config(config)
+
+
+def _parse_brightness_status(status: dict[str, Any]) -> int | None:
+    """Parse live brightness from status payload."""
     ui_status = status.get("ui")
     if isinstance(ui_status, dict):
         brightness = ui_status.get("brightness")
@@ -40,7 +48,11 @@ def _parse_brightness(config: dict[str, Any], status: dict[str, Any]) -> int | N
             level = brightness.get("level")
             if isinstance(level, (int, float)):
                 return int(round(level))
+    return None
 
+
+def _parse_brightness_config(config: dict[str, Any]) -> int | None:
+    """Parse configured brightness from config payload."""
     ui_cfg = config.get("ui")
     if isinstance(ui_cfg, dict):
         brightness = ui_cfg.get("brightness")
@@ -112,18 +124,17 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not isinstance(methods, list):
             methods = []
         screen_on = _parse_screen_on(status)
-        brightness = _parse_brightness(config, status)
+        brightness_status = _parse_brightness_status(status)
+        brightness_config = _parse_brightness_config(config)
+        brightness = brightness_status if brightness_status is not None else brightness_config
         if isinstance(screen_on, bool):
             self._expected_screen_on = screen_on
-        elif isinstance(brightness, int) and brightness > 0:
-            # On firmware variants where screen_on is never reported, non-zero
-            # brightness is the best signal that the panel is currently on.
-            self._expected_screen_on = True
         _LOGGER.debug(
-            "RPC state: screen_on=%s expected=%s brightness=%s pending=%s",
+            "RPC state: screen_on=%s expected=%s brightness_status=%s brightness_config=%s pending=%s",
             screen_on,
             self._expected_screen_on,
-            brightness,
+            brightness_status,
+            brightness_config,
             self._pending_brightness_level,
         )
 
@@ -134,7 +145,7 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             pending_level = self._pending_brightness_level
             if pending_level <= 0:
                 self._pending_brightness_level = None
-            elif brightness != pending_level:
+            elif brightness_config != pending_level:
                 try:
                     await self.client.call(
                         "Ui.SetConfig",
@@ -148,16 +159,19 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         },
                     )
                     brightness = pending_level
+                    brightness_config = pending_level
                     _LOGGER.debug("Applied pending brightness level=%s after wake-up", pending_level)
                 except ShellyRPCError as err:
                     _LOGGER.warning("Failed applying pending brightness level %s: %s", pending_level, err)
-            if brightness == pending_level:
+            if brightness_config == pending_level:
                 self._pending_brightness_level = None
 
-        if isinstance(brightness, int):
-            if brightness > 0:
-                self._last_nonzero_brightness_level = brightness
-            if self._pending_brightness_level == brightness:
+        for level in (brightness_status, brightness_config):
+            if isinstance(level, int) and level > 0:
+                self._last_nonzero_brightness_level = level
+        if isinstance(brightness_config, int) and self._pending_brightness_level == brightness_config:
+            self._pending_brightness_level = None
+        elif isinstance(brightness_status, int) and self._pending_brightness_level == brightness_status:
                 self._pending_brightness_level = None
 
         parsed: dict[str, Any] = {
@@ -165,6 +179,8 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "config": config,
             "methods": set(m for m in methods if isinstance(m, str)),
             "screen_on": screen_on,
+            "brightness_status": brightness_status,
+            "brightness_config": brightness_config,
             "brightness": brightness,
         }
         return parsed

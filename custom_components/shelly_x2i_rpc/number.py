@@ -78,6 +78,8 @@ class ShellyScreenBrightness(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
     def native_value(self) -> float | None:
         """Return the current brightness."""
         raw_value = self.coordinator.data.get("brightness")
+        raw_status = self.coordinator.data.get("brightness_status")
+        raw_config = self.coordinator.data.get("brightness_config")
         screen_is_on = self.coordinator.data.get("screen_on")
         effective_screen_on = (
             screen_is_on if isinstance(screen_is_on, bool) else self.coordinator.expected_screen_on
@@ -87,10 +89,23 @@ class ShellyScreenBrightness(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
             pending_level = self.coordinator.pending_brightness_level
             if isinstance(pending_level, int):
                 return _raw_to_percent(float(pending_level))
+            if isinstance(raw_config, (int, float)):
+                return _raw_to_percent(float(raw_config))
             last_nonzero = self.coordinator.last_nonzero_brightness_level
             if isinstance(last_nonzero, int):
                 return _raw_to_percent(float(last_nonzero))
 
+        if effective_screen_on is None:
+            if isinstance(raw_status, (int, float)) and isinstance(raw_config, (int, float)):
+                # Firmware can report status=0 while the panel is "off" but keep
+                # a non-zero configured brightness level.
+                if int(round(float(raw_status))) == 0 and float(raw_config) > 0:
+                    return _raw_to_percent(float(raw_config))
+
+        if isinstance(raw_status, (int, float)):
+            return _raw_to_percent(float(raw_status))
+        if isinstance(raw_config, (int, float)):
+            return _raw_to_percent(float(raw_config))
         if isinstance(raw_value, (int, float)):
             return _raw_to_percent(float(raw_value))
         return self._optimistic_value
@@ -100,11 +115,20 @@ class ShellyScreenBrightness(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
         target_percent = max(0.0, min(100.0, float(value)))
         level = _percent_to_raw(target_percent)
         screen_is_on = self.coordinator.data.get("screen_on")
+        raw_status = self.coordinator.data.get("brightness_status")
+        raw_config = self.coordinator.data.get("brightness_config")
         effective_screen_on = (
             screen_is_on if isinstance(screen_is_on, bool) else self.coordinator.expected_screen_on
         )
+        likely_off_with_unknown_state = (
+            effective_screen_on is None
+            and isinstance(raw_status, (int, float))
+            and isinstance(raw_config, (int, float))
+            and int(round(float(raw_status))) == 0
+            and float(raw_config) > 0
+        )
 
-        if effective_screen_on is False:
+        if effective_screen_on is False or likely_off_with_unknown_state:
             # Keep brightness independent from power: remember target while off,
             # then apply it when the screen is turned on.
             _LOGGER.debug("Brightness set while OFF -> pending level=%s (%s%%)", level, target_percent)
