@@ -93,7 +93,8 @@ class ShellyScreenPowerSwitch(ShellyX2iBaseEntity, SwitchEntity, RestoreEntity):
                         }
                     },
                 )
-                self.coordinator.clear_pending_brightness_level()
+                # Keep pending until coordinator confirms the device really
+                # reports this value in GetConfig/GetStatus.
             self.hass.async_create_task(self.coordinator.async_request_refresh())
         except ShellyRPCError as err:
             _LOGGER.warning("Failed setting screen power to %s: %s", on, err)
