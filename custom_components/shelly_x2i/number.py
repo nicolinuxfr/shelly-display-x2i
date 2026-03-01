@@ -114,6 +114,8 @@ class ShellyScreenBrightness(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
         """Set brightness through RPC."""
         target_percent = max(0.0, min(100.0, float(value)))
         level = _percent_to_raw(target_percent)
+        # Keep desired brightness until coordinator confirms device applied it.
+        self.coordinator.set_pending_brightness_level(level)
         screen_is_on = self.coordinator.data.get("screen_on")
         raw_status = self.coordinator.data.get("brightness_status")
         raw_config = self.coordinator.data.get("brightness_config")
@@ -149,6 +151,5 @@ class ShellyScreenBrightness(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
                 }
             },
         )
-        self.coordinator.clear_pending_brightness_level()
         self._optimistic_value = target_percent
         await self.coordinator.async_request_refresh()
