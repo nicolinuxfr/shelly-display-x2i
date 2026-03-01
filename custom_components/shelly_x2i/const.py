@@ -1,10 +1,10 @@
-"""Constants for the Shelly Wall Display X2i RPC integration."""
+"""Constants for the Shelly Wall Display X2i integration."""
 
 from __future__ import annotations
 
 from datetime import timedelta
 
-DOMAIN = "shelly_x2i_rpc"
+DOMAIN = "shelly_x2i"
 
 CONF_HOST = "host"
 CONF_PORT = "port"
@@ -18,7 +18,7 @@ DEFAULT_PORT = 80
 DEFAULT_SCAN_INTERVAL = 30
 MIN_SCAN_INTERVAL = 5
 MAX_SCAN_INTERVAL = 300
-DEFAULT_NAME = "Shelly Wall Display X2i RPC"
+DEFAULT_NAME = "Shelly Wall Display X2i"
 
 PLATFORMS = ["switch", "number", "button"]
 

@@ -19,7 +19,7 @@ This integration is intended to complement the official Shelly integration:
   - Refresh
   - Reboot
 - Service:
-  - `shelly_x2i_rpc.call_rpc` to execute any RPC method
+  - `shelly_x2i.call_rpc` to execute any RPC method
 
 ## Install with HACS
 
