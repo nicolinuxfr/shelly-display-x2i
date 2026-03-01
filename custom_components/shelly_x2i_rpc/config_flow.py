@@ -196,11 +196,10 @@ class ShellyX2iRPCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if "x2i" not in model and "x2i" not in name and "wall display" not in model:
                 continue
 
-            host, port = self._host_from_device(device)
+            entities = er.async_entries_for_device(ent_reg, device.id)
+            host, port = self._host_from_device(device, entities)
             if host is None:
                 continue
-
-            entities = er.async_entries_for_device(ent_reg, device.id)
             source_entity_id = entities[0].entity_id if entities else None
 
             label_name = device.name_by_user or device.name or "Shelly Wall Display X2i"
@@ -219,17 +218,59 @@ class ShellyX2iRPCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return candidates
 
     @staticmethod
-    def _host_from_device(device: dr.DeviceEntry) -> tuple[str | None, int]:
-        """Extract host/port from device configuration URL."""
-        url = device.configuration_url
-        if not url:
+    def _parse_host_port(value: str | None) -> tuple[str | None, int]:
+        """Parse host/port from URL or raw host string."""
+        if not value:
             return None, DEFAULT_PORT
 
-        parsed = urlparse(url)
+        raw = value.strip()
+        if not raw:
+            return None, DEFAULT_PORT
+        if "://" not in raw:
+            raw = f"http://{raw}"
+
+        parsed = urlparse(raw)
         if not parsed.hostname:
             return None, DEFAULT_PORT
 
         return parsed.hostname, parsed.port or DEFAULT_PORT
+
+    def _host_from_device(
+        self,
+        device: dr.DeviceEntry,
+        entities: list[er.RegistryEntry],
+    ) -> tuple[str | None, int]:
+        """Extract host/port from available HA metadata for this device."""
+        host, port = self._parse_host_port(device.configuration_url)
+        if host is not None:
+            return host, port
+
+        # Try linked config entries (official Shelly integration usually stores host there).
+        for entry_id in device.config_entries:
+            config_entry = self.hass.config_entries.async_get_entry(entry_id)
+            if config_entry is None:
+                continue
+            for source in (config_entry.data, config_entry.options):
+                for key in (CONF_HOST, "host", "ip", "ip_address", "address", "device_ip"):
+                    value = source.get(key)
+                    if isinstance(value, str):
+                        host, port = self._parse_host_port(value)
+                        if host is not None:
+                            return host, port
+
+        # Last fallback: inspect runtime state attributes from linked entities.
+        for entity in entities:
+            state = self.hass.states.get(entity.entity_id)
+            if state is None:
+                continue
+            for key in ("ip", "ip_address", "host", "address"):
+                value = state.attributes.get(key)
+                if isinstance(value, str):
+                    host, port = self._parse_host_port(value)
+                    if host is not None:
+                        return host, port
+
+        return None, DEFAULT_PORT
 
     @staticmethod
     @callback
