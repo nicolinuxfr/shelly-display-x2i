@@ -1,15 +1,15 @@
 {
-  "domain": "shelly_x2i_rpc",
-  "name": "Shelly Wall Display X2i RPC",
+  "domain": "shelly_x2i",
+  "name": "Shelly Wall Display X2i",
   "codeowners": [
-    "@nicolas"
+    "@nicolinuxfr"
   ],
   "config_flow": true,
-  "documentation": "https://github.com/nicolas/shelly-display-x2i",
+  "documentation": "https://github.com/nicolinuxfr/shelly-display-x2i",
   "integration_type": "device",
   "iot_class": "local_polling",
   "loggers": [
-    "custom_components.shelly_x2i_rpc"
+    "custom_components.shelly_x2i"
   ],
   "requirements": [],
   "version": "0.1.0"
