@@ -52,12 +52,11 @@ class ShellyScreenPowerSwitch(ShellyX2iBaseEntity, SwitchEntity, RestoreEntity):
         state = self.coordinator.data.get("screen_on")
         if isinstance(state, bool):
             return state
-        return self._optimistic_state
-
-    @property
-    def assumed_state(self) -> bool:
-        """Expose assumed state when firmware does not provide real status."""
-        return self.coordinator.data.get("screen_on") is None
+        if isinstance(self._optimistic_state, bool):
+            return self._optimistic_state
+        # Keep a deterministic toggle state even when the firmware does not
+        # expose screen status in Ui.GetStatus.
+        return False
 
     async def async_turn_on(self, **kwargs) -> None:
         """Turn the screen on."""

@@ -12,6 +12,20 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from . import ShellyX2iRPCRuntimeData
 from .entity import ShellyX2iBaseEntity
 
+_SHELLY_BRIGHTNESS_MAX = 250
+
+
+def _raw_to_percent(raw_level: float) -> float:
+    """Convert Shelly brightness level (0..250) to Home Assistant percentage."""
+    clamped = max(0.0, min(float(_SHELLY_BRIGHTNESS_MAX), raw_level))
+    return round((clamped / float(_SHELLY_BRIGHTNESS_MAX)) * 100.0, 1)
+
+
+def _percent_to_raw(percent: float) -> int:
+    """Convert Home Assistant percentage (0..100) to Shelly brightness level."""
+    clamped = max(0.0, min(100.0, percent))
+    return int(round((clamped / 100.0) * float(_SHELLY_BRIGHTNESS_MAX)))
+
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
@@ -48,21 +62,26 @@ class ShellyScreenBrightness(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
         restored = await self.async_get_last_state()
         if restored is not None:
             try:
-                self._optimistic_value = float(restored.state)
+                restored_value = float(restored.state)
+                if restored_value > 100.0:
+                    # Backward compatibility with old states stored as raw
+                    # Shelly brightness levels (0..250).
+                    restored_value = _raw_to_percent(restored_value)
+                self._optimistic_value = max(0.0, min(100.0, restored_value))
             except ValueError:
                 self._optimistic_value = None
 
     @property
     def native_value(self) -> float | None:
         """Return the current brightness."""
-        value = self.coordinator.data.get("brightness")
-        if isinstance(value, (int, float)):
-            return float(value)
+        raw_value = self.coordinator.data.get("brightness")
+        if isinstance(raw_value, (int, float)):
+            return _raw_to_percent(float(raw_value))
         return self._optimistic_value
 
     async def async_set_native_value(self, value: float) -> None:
         """Set brightness through RPC."""
-        level = int(round(value))
+        level = _percent_to_raw(float(value))
         await self.coordinator.client.call(
             "Ui.SetConfig",
             {
@@ -74,5 +93,5 @@ class ShellyScreenBrightness(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
                 }
             },
         )
-        self._optimistic_value = float(level)
+        self._optimistic_value = max(0.0, min(100.0, float(value)))
         await self.coordinator.async_request_refresh()
