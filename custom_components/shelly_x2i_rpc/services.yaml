@@ -1,0 +1,19 @@
+call_rpc:
+  name: Call RPC method
+  description: Call any RPC method on the configured Shelly display.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional config entry ID. First configured entry is used when omitted.
+      example: "01JABCDEF123"
+    method:
+      name: Method
+      description: RPC method name.
+      required: true
+      selector:
+        text:
+    params:
+      name: Parameters
+      description: RPC parameters object.
+      selector:
+        object:

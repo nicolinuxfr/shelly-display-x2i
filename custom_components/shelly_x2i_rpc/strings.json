@@ -1,0 +1,70 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Shelly Wall Display X2i RPC",
+        "description": "Connect directly to your Shelly display RPC endpoint.",
+        "data": {
+          "host": "Host or IP address",
+          "port": "Port",
+          "username": "Username",
+          "password": "Password",
+          "source_entity_id": "Existing Shelly entity ID (optional)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the Shelly RPC endpoint"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options",
+        "data": {
+          "source_entity_id": "Existing Shelly entity ID (optional)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "switch": {
+      "screen_power": {
+        "name": "Screen"
+      }
+    },
+    "number": {
+      "screen_brightness": {
+        "name": "Brightness"
+      }
+    },
+    "button": {
+      "refresh": {
+        "name": "Refresh"
+      },
+      "reboot": {
+        "name": "Reboot"
+      }
+    }
+  },
+  "services": {
+    "call_rpc": {
+      "name": "Call RPC method",
+      "description": "Call any RPC method on the configured Shelly display.",
+      "fields": {
+        "entry_id": {
+          "name": "Config entry ID",
+          "description": "Optional. If omitted, first configured display is used."
+        },
+        "method": {
+          "name": "Method",
+          "description": "RPC method to call, for example Ui.Screen.Set"
+        },
+        "params": {
+          "name": "Parameters",
+          "description": "JSON object for RPC params."
+        }
+      }
+    }
+  }
+}

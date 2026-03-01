@@ -1,0 +1,9 @@
+{
+  "name": "Shelly Wall Display X2i RPC",
+  "content_in_root": false,
+  "domains": [
+    "shelly_x2i_rpc"
+  ],
+  "homeassistant": "2025.6.0",
+  "render_readme": true
+}
