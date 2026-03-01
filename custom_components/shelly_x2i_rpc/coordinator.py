@@ -114,7 +114,9 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # screen is back on, including when wake-up was triggered directly on device.
         if screen_on is True and isinstance(self._pending_brightness_level, int):
             pending_level = self._pending_brightness_level
-            if brightness != pending_level:
+            if pending_level <= 0:
+                self._pending_brightness_level = None
+            elif brightness != pending_level:
                 try:
                     await self.client.call(
                         "Ui.SetConfig",
