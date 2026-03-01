@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from homeassistant.components.number import NumberEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE
@@ -13,6 +15,7 @@ from . import ShellyX2iRPCRuntimeData
 from .entity import ShellyX2iBaseEntity
 
 _SHELLY_BRIGHTNESS_MAX = 250
+_LOGGER = logging.getLogger(__name__)
 
 
 def _raw_to_percent(raw_level: float) -> float:
@@ -76,8 +79,11 @@ class ShellyScreenBrightness(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
         """Return the current brightness."""
         raw_value = self.coordinator.data.get("brightness")
         screen_is_on = self.coordinator.data.get("screen_on")
+        effective_screen_on = (
+            screen_is_on if isinstance(screen_is_on, bool) else self.coordinator.expected_screen_on
+        )
 
-        if screen_is_on is False:
+        if effective_screen_on is False:
             pending_level = self.coordinator.pending_brightness_level
             if isinstance(pending_level, int):
                 return _raw_to_percent(float(pending_level))
@@ -94,15 +100,20 @@ class ShellyScreenBrightness(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
         target_percent = max(0.0, min(100.0, float(value)))
         level = _percent_to_raw(target_percent)
         screen_is_on = self.coordinator.data.get("screen_on")
+        effective_screen_on = (
+            screen_is_on if isinstance(screen_is_on, bool) else self.coordinator.expected_screen_on
+        )
 
-        if screen_is_on is False:
+        if effective_screen_on is False:
             # Keep brightness independent from power: remember target while off,
             # then apply it when the screen is turned on.
+            _LOGGER.debug("Brightness set while OFF -> pending level=%s (%s%%)", level, target_percent)
             self.coordinator.set_pending_brightness_level(level)
             self._optimistic_value = target_percent
             self.async_write_ha_state()
             return
 
+        _LOGGER.debug("Brightness set live -> level=%s (%s%%)", level, target_percent)
         await self.coordinator.client.call(
             "Ui.SetConfig",
             {

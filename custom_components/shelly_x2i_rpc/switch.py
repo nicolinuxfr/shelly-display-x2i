@@ -58,6 +58,9 @@ class ShellyScreenPowerSwitch(ShellyX2iBaseEntity, SwitchEntity, RestoreEntity):
         state = self.coordinator.data.get("screen_on")
         if isinstance(state, bool):
             return state
+        expected = self.coordinator.expected_screen_on
+        if isinstance(expected, bool):
+            return expected
         if isinstance(self._optimistic_state, bool):
             return self._optimistic_state
         # Keep a deterministic toggle state even when the firmware does not
@@ -67,6 +70,7 @@ class ShellyScreenPowerSwitch(ShellyX2iBaseEntity, SwitchEntity, RestoreEntity):
     async def async_turn_on(self, **kwargs) -> None:
         """Turn the screen on."""
         self._optimistic_state = True
+        self.coordinator.set_expected_screen_on(True)
         self.async_write_ha_state()
         pending_level = self.coordinator.pending_brightness_level
         self.hass.async_create_task(self._async_send_power_command(True, pending_level))
@@ -108,10 +112,12 @@ class ShellyScreenPowerSwitch(ShellyX2iBaseEntity, SwitchEntity, RestoreEntity):
             _LOGGER.warning("Failed setting screen power to %s: %s", on, err)
             # Revert optimistic state only if command failed.
             self._optimistic_state = not on
+            self.coordinator.set_expected_screen_on(not on)
             self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs) -> None:
         """Turn the screen off."""
         self._optimistic_state = False
+        self.coordinator.set_expected_screen_on(False)
         self.async_write_ha_state()
         self.hass.async_create_task(self._async_send_power_command(False, None))
