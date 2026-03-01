@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from typing import Any
 from urllib.parse import urlparse
 
@@ -19,6 +20,7 @@ from .const import CONF_SOURCE_ENTITY_ID, DEFAULT_PORT, DOMAIN
 
 CONF_DISCOVERED_DEVICE = "discovered_device"
 _DISCOVERY_MANUAL = "__manual__"
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -30,6 +32,10 @@ class _DiscoveryCandidate:
     host: str
     port: int
     source_entity_id: str | None
+    expected_model: str | None = None
+    expected_unique_id: str | None = None
+    expected_mac: str | None = None
+    likely_x2i: bool = False
 
 
 class ShellyX2iRPCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -128,6 +134,33 @@ class ShellyX2iRPCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 source_entity_id=data.get(CONF_SOURCE_ENTITY_ID) or "",
             )
 
+        if not self._is_wall_display_info(info):
+            if source_step == "discovery":
+                return self._async_show_discovery_form(
+                    errors={"base": "not_wall_display"},
+                    selected_key=selected_key or self._candidates[0].key,
+                    username=data.get(CONF_USERNAME) or "",
+                    password=data.get(CONF_PASSWORD) or "",
+                )
+            return self._async_show_manual_form(
+                errors={"base": "not_wall_display"},
+                host=data[CONF_HOST],
+                port=data[CONF_PORT],
+                username=data.get(CONF_USERNAME) or "",
+                password=data.get(CONF_PASSWORD) or "",
+                source_entity_id=data.get(CONF_SOURCE_ENTITY_ID) or "",
+            )
+
+        if source_step == "discovery" and selected_key is not None:
+            candidate = next((item for item in self._candidates if item.key == selected_key), None)
+            if candidate is not None and not self._candidate_matches_info(candidate, info):
+                return self._async_show_discovery_form(
+                    errors={"base": "wrong_device"},
+                    selected_key=selected_key,
+                    username=data.get(CONF_USERNAME) or "",
+                    password=data.get(CONF_PASSWORD) or "",
+                )
+
         unique = str(info.get("id") or data[CONF_HOST])
         await self.async_set_unique_id(unique)
         self._abort_if_unique_id_configured()
@@ -180,42 +213,93 @@ class ShellyX2iRPCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(step_id="manual", data_schema=schema, errors=errors or {})
 
     async def _async_discover_candidates(self) -> list[_DiscoveryCandidate]:
-        """Discover likely Shelly Wall Display devices from HA registries."""
+        """Discover Shelly devices from HA registries and config entries."""
         dev_reg = dr.async_get(self.hass)
         ent_reg = er.async_get(self.hass)
 
-        candidates: list[_DiscoveryCandidate] = []
+        candidates: dict[str, _DiscoveryCandidate] = {}
+        seen_host_ports: set[tuple[str, int]] = set()
 
         for device in dev_reg.devices.values():
             manufacturer = (device.manufacturer or "").lower()
             model = (device.model or "").lower()
             name = (device.name or "").lower()
+            user_name = (device.name_by_user or "").lower()
 
-            if "shelly" not in manufacturer:
-                continue
-            if "x2i" not in model and "x2i" not in name and "wall display" not in model:
+            linked_entries = [
+                self.hass.config_entries.async_get_entry(entry_id)
+                for entry_id in device.config_entries
+            ]
+            has_shelly_entry = any(entry and entry.domain == "shelly" for entry in linked_entries)
+
+            if "shelly" not in manufacturer and not has_shelly_entry:
                 continue
 
             entities = er.async_entries_for_device(ent_reg, device.id)
-            host, port = self._host_from_device(device, entities)
+            host, port = self._host_from_device(device, entities, linked_entries)
             if host is None:
                 continue
-            source_entity_id = entities[0].entity_id if entities else None
+            source_entity_id = self._select_source_entity(entities)
+            likely_x2i = self._is_likely_x2i(model=model, name=name, user_name=user_name)
+            expected_unique_id = next(
+                (
+                    entry.unique_id
+                    for entry in linked_entries
+                    if entry is not None and entry.domain == "shelly" and entry.unique_id
+                ),
+                None,
+            )
+            expected_mac = next(
+                (
+                    str(connection[1])
+                    for connection in device.connections
+                    if connection[0] == dr.CONNECTION_NETWORK_MAC
+                ),
+                None,
+            )
 
-            label_name = device.name_by_user or device.name or "Shelly Wall Display X2i"
-            label = f"{label_name} ({host}:{port})"
-            candidates.append(
+            label_name = device.name_by_user or device.name or "Shelly device"
+            model_label = f" - {device.model}" if device.model else ""
+            label = f"{label_name}{model_label} ({host}:{port})"
+            candidates[device.id] = (
                 _DiscoveryCandidate(
                     key=device.id,
                     label=label,
                     host=host,
                     port=port,
                     source_entity_id=source_entity_id,
+                    expected_model=device.model,
+                    expected_unique_id=expected_unique_id,
+                    expected_mac=expected_mac,
+                    likely_x2i=likely_x2i,
                 )
             )
+            seen_host_ports.add((host, port))
 
-        candidates.sort(key=lambda item: item.label.lower())
-        return candidates
+        # Fallback: official Shelly config entries not linked to device registry.
+        for entry in self.hass.config_entries.async_entries("shelly"):
+            host, port = self._host_from_sources(entry.data, entry.options)
+            if host is None or (host, port) in seen_host_ports:
+                continue
+
+            entities = er.async_entries_for_config_entry(ent_reg, entry.entry_id)
+            source_entity_id = self._select_source_entity(entities)
+            model = str(entry.data.get("model") or entry.options.get("model") or "").lower()
+            title = entry.title or "Shelly device"
+            candidates[f"ce::{entry.entry_id}"] = _DiscoveryCandidate(
+                key=f"ce::{entry.entry_id}",
+                label=f"{title} ({host}:{port})",
+                host=host,
+                port=port,
+                source_entity_id=source_entity_id,
+                expected_model=entry.data.get("model") or entry.options.get("model"),
+                expected_unique_id=entry.unique_id,
+                likely_x2i=self._is_likely_x2i(model=model, name=title.lower(), user_name=""),
+            )
+
+        ordered = sorted(candidates.values(), key=lambda item: (not item.likely_x2i, item.label.lower()))
+        _LOGGER.debug("Shelly candidate discovery found %s devices", len(ordered))
+        return ordered
 
     @staticmethod
     def _parse_host_port(value: str | None) -> tuple[str | None, int]:
@@ -239,6 +323,7 @@ class ShellyX2iRPCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self,
         device: dr.DeviceEntry,
         entities: list[er.RegistryEntry],
+        linked_entries: list[config_entries.ConfigEntry | None],
     ) -> tuple[str | None, int]:
         """Extract host/port from available HA metadata for this device."""
         host, port = self._parse_host_port(device.configuration_url)
@@ -246,31 +331,98 @@ class ShellyX2iRPCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return host, port
 
         # Try linked config entries (official Shelly integration usually stores host there).
-        for entry_id in device.config_entries:
-            config_entry = self.hass.config_entries.async_get_entry(entry_id)
-            if config_entry is None:
-                continue
-            for source in (config_entry.data, config_entry.options):
-                for key in (CONF_HOST, "host", "ip", "ip_address", "address", "device_ip"):
-                    value = source.get(key)
-                    if isinstance(value, str):
-                        host, port = self._parse_host_port(value)
-                        if host is not None:
-                            return host, port
+        host, port = self._host_from_sources(
+            *[
+                source
+                for entry in linked_entries
+                if entry is not None
+                for source in (entry.data, entry.options)
+            ]
+        )
+        if host is not None:
+            return host, port
 
         # Last fallback: inspect runtime state attributes from linked entities.
         for entity in entities:
             state = self.hass.states.get(entity.entity_id)
             if state is None:
                 continue
-            for key in ("ip", "ip_address", "host", "address"):
-                value = state.attributes.get(key)
-                if isinstance(value, str):
-                    host, port = self._parse_host_port(value)
-                    if host is not None:
-                        return host, port
+            host, port = self._host_from_sources(state.attributes)
+            if host is not None:
+                return host, port
 
         return None, DEFAULT_PORT
+
+    @classmethod
+    def _host_from_sources(cls, *sources: dict[str, Any]) -> tuple[str | None, int]:
+        """Extract host/port from several dictionaries."""
+        for source in sources:
+            for key in (CONF_HOST, "host", "ip", "ip_address", "address", "device_ip"):
+                value = source.get(key)
+                if isinstance(value, str):
+                    host, port = cls._parse_host_port(value)
+                    if host is not None:
+                        return host, port
+        return None, DEFAULT_PORT
+
+    @staticmethod
+    def _select_source_entity(entities: list[er.RegistryEntry]) -> str | None:
+        """Choose the best source entity to link our entities to an existing device."""
+        if not entities:
+            return None
+        for entity in entities:
+            if "shelly" in entity.entity_id:
+                return entity.entity_id
+        return entities[0].entity_id
+
+    @staticmethod
+    def _is_likely_x2i(model: str, name: str, user_name: str) -> bool:
+        """Tell whether this candidate likely targets Wall Display X2i."""
+        text = f"{model} {name} {user_name}"
+        return (
+            "x2i" in text
+            or "wall display" in text
+            or "walldisplay" in text
+            or "sawd" in text
+        )
+
+    @classmethod
+    def _is_wall_display_info(cls, info: dict[str, Any]) -> bool:
+        """Check whether Shelly.GetDeviceInfo payload looks like Wall Display."""
+        model = str(info.get("model") or "").lower()
+        name = str(info.get("name") or info.get("id") or "").lower()
+        return cls._is_likely_x2i(model=model, name=name, user_name="")
+
+    @classmethod
+    def _candidate_matches_info(cls, candidate: _DiscoveryCandidate, info: dict[str, Any]) -> bool:
+        """Verify selected candidate matches actual RPC endpoint identity."""
+        info_id = cls._normalize_token(str(info.get("id") or ""))
+        info_model = str(info.get("model") or "").lower()
+        info_mac = cls._normalize_token(str(info.get("mac") or ""))
+
+        expected_model = str(candidate.expected_model or "").lower()
+        if expected_model and info_model and expected_model != info_model:
+            return False
+
+        expected_unique = cls._normalize_token(candidate.expected_unique_id)
+        if expected_unique and info_id and expected_unique not in info_id:
+            return False
+
+        expected_mac = cls._normalize_token(candidate.expected_mac)
+        if expected_mac:
+            if info_mac and expected_mac != info_mac:
+                return False
+            if info_id and expected_mac not in info_id:
+                return False
+
+        return True
+
+    @staticmethod
+    def _normalize_token(value: str | None) -> str:
+        """Normalize identifiers/MAC for resilient comparison."""
+        if not value:
+            return ""
+        return "".join(ch for ch in value.upper() if ch.isalnum())
 
     @staticmethod
     @callback

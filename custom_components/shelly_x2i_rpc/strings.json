@@ -29,7 +29,9 @@
     },
     "error": {
       "cannot_connect": "Failed to connect to the Shelly RPC endpoint",
-      "unknown_device": "Unknown discovered device, please retry"
+      "unknown_device": "Unknown discovered device, please retry",
+      "not_wall_display": "The selected endpoint is not a Shelly Wall Display",
+      "wrong_device": "The endpoint does not match the selected discovered device"
     }
   },
   "options": {
