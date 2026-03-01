@@ -3,6 +3,20 @@
     "step": {
       "user": {
         "title": "Shelly Wall Display X2i RPC",
+        "description": "Discover your Shelly Wall Display X2i automatically or connect manually.",
+        "data": {}
+      },
+      "discovery": {
+        "title": "Discovered Shelly displays",
+        "description": "Select a discovered device from Home Assistant, then optionally add RPC credentials.",
+        "data": {
+          "discovered_device": "Discovered device",
+          "username": "Username",
+          "password": "Password"
+        }
+      },
+      "manual": {
+        "title": "Manual setup",
         "description": "Connect directly to your Shelly display RPC endpoint.",
         "data": {
           "host": "Host or IP address",
@@ -14,7 +28,8 @@
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect to the Shelly RPC endpoint"
+      "cannot_connect": "Failed to connect to the Shelly RPC endpoint",
+      "unknown_device": "Unknown discovered device, please retry"
     }
   },
   "options": {

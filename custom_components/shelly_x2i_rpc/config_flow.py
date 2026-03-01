@@ -2,17 +2,34 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
 import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, CONF_USERNAME
 from homeassistant.core import callback
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .client import ShellyRPCClient, ShellyRPCError
 from .const import CONF_SOURCE_ENTITY_ID, DEFAULT_PORT, DOMAIN
+
+CONF_DISCOVERED_DEVICE = "discovered_device"
+_DISCOVERY_MANUAL = "__manual__"
+
+
+@dataclass(slots=True)
+class _DiscoveryCandidate:
+    """Candidate found from Home Assistant registries."""
+
+    key: str
+    label: str
+    host: str
+    port: int
+    source_entity_id: str | None
 
 
 class ShellyX2iRPCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -20,53 +37,199 @@ class ShellyX2iRPCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    def __init__(self) -> None:
+        """Initialize flow state."""
+        self._candidates: list[_DiscoveryCandidate] = []
+
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         """Handle the initial step."""
-        errors: dict[str, str] = {}
+        self._candidates = await self._async_discover_candidates()
+        if self._candidates:
+            return await self.async_step_discovery()
+        return await self.async_step_manual()
 
+    async def async_step_discovery(self, user_input: dict[str, Any] | None = None):
+        """Select one discovered device or switch to manual setup."""
         if user_input is not None:
-            host = user_input[CONF_HOST]
-            port = user_input[CONF_PORT]
-            username = user_input.get(CONF_USERNAME) or None
-            password = user_input.get(CONF_PASSWORD) or None
+            selected_key = user_input[CONF_DISCOVERED_DEVICE]
+            if selected_key == _DISCOVERY_MANUAL:
+                return await self.async_step_manual()
 
-            client = ShellyRPCClient(
-                async_get_clientsession(self.hass),
-                host=host,
-                port=port,
-                username=username,
-                password=password,
+            candidate = next((item for item in self._candidates if item.key == selected_key), None)
+            if candidate is None:
+                return self._async_show_discovery_form(
+                    errors={"base": "unknown_device"},
+                    selected_key=self._candidates[0].key,
+                    username=user_input.get(CONF_USERNAME, ""),
+                    password=user_input.get(CONF_PASSWORD, ""),
+                )
+
+            return await self._async_validate_and_create(
+                {
+                    CONF_HOST: candidate.host,
+                    CONF_PORT: candidate.port,
+                    CONF_USERNAME: user_input.get(CONF_USERNAME) or None,
+                    CONF_PASSWORD: user_input.get(CONF_PASSWORD) or None,
+                    CONF_SOURCE_ENTITY_ID: candidate.source_entity_id,
+                },
+                source_step="discovery",
+                selected_key=selected_key,
             )
 
-            try:
-                info = await client.call("Shelly.GetDeviceInfo")
-            except ShellyRPCError:
-                errors["base"] = "cannot_connect"
-            else:
-                unique = str(info.get("id") or host)
-                await self.async_set_unique_id(unique)
-                self._abort_if_unique_id_configured()
+        return self._async_show_discovery_form()
 
-                title = info.get("name") or f"Wall Display X2i ({host})"
-                data = {
-                    CONF_HOST: host,
-                    CONF_PORT: port,
-                    CONF_USERNAME: username,
-                    CONF_PASSWORD: password,
+    async def async_step_manual(self, user_input: dict[str, Any] | None = None):
+        """Manual setup fallback."""
+        if user_input is not None:
+            return await self._async_validate_and_create(
+                {
+                    CONF_HOST: user_input[CONF_HOST],
+                    CONF_PORT: user_input[CONF_PORT],
+                    CONF_USERNAME: user_input.get(CONF_USERNAME) or None,
+                    CONF_PASSWORD: user_input.get(CONF_PASSWORD) or None,
                     CONF_SOURCE_ENTITY_ID: user_input.get(CONF_SOURCE_ENTITY_ID) or None,
-                }
-                return self.async_create_entry(title=title, data=data)
+                },
+                source_step="manual",
+            )
+
+        return self._async_show_manual_form()
+
+    async def _async_validate_and_create(
+        self,
+        data: dict[str, Any],
+        source_step: str,
+        selected_key: str | None = None,
+    ):
+        """Validate RPC endpoint and create config entry."""
+        client = ShellyRPCClient(
+            async_get_clientsession(self.hass),
+            host=data[CONF_HOST],
+            port=data[CONF_PORT],
+            username=data.get(CONF_USERNAME),
+            password=data.get(CONF_PASSWORD),
+        )
+
+        try:
+            info = await client.call("Shelly.GetDeviceInfo")
+        except ShellyRPCError:
+            if source_step == "discovery":
+                return self._async_show_discovery_form(
+                    errors={"base": "cannot_connect"},
+                    selected_key=selected_key or self._candidates[0].key,
+                    username=data.get(CONF_USERNAME) or "",
+                    password=data.get(CONF_PASSWORD) or "",
+                )
+            return self._async_show_manual_form(
+                errors={"base": "cannot_connect"},
+                host=data[CONF_HOST],
+                port=data[CONF_PORT],
+                username=data.get(CONF_USERNAME) or "",
+                password=data.get(CONF_PASSWORD) or "",
+                source_entity_id=data.get(CONF_SOURCE_ENTITY_ID) or "",
+            )
+
+        unique = str(info.get("id") or data[CONF_HOST])
+        await self.async_set_unique_id(unique)
+        self._abort_if_unique_id_configured()
+
+        title = info.get("name") or f"Wall Display X2i ({data[CONF_HOST]})"
+        return self.async_create_entry(title=title, data=data)
+
+    def _async_show_discovery_form(
+        self,
+        errors: dict[str, str] | None = None,
+        selected_key: str | None = None,
+        username: str = "",
+        password: str = "",
+    ):
+        """Render discovery form with defaults."""
+        options = {candidate.key: candidate.label for candidate in self._candidates}
+        options[_DISCOVERY_MANUAL] = "Manual setup"
 
         schema = vol.Schema(
             {
-                vol.Required(CONF_HOST): str,
-                vol.Required(CONF_PORT, default=DEFAULT_PORT): int,
-                vol.Optional(CONF_USERNAME, default=""): str,
-                vol.Optional(CONF_PASSWORD, default=""): str,
-                vol.Optional(CONF_SOURCE_ENTITY_ID, default=""): str,
+                vol.Required(
+                    CONF_DISCOVERED_DEVICE,
+                    default=selected_key or self._candidates[0].key,
+                ): vol.In(options),
+                vol.Optional(CONF_USERNAME, default=username): str,
+                vol.Optional(CONF_PASSWORD, default=password): str,
             }
         )
-        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+        return self.async_show_form(step_id="discovery", data_schema=schema, errors=errors or {})
+
+    def _async_show_manual_form(
+        self,
+        errors: dict[str, str] | None = None,
+        host: str = "",
+        port: int = DEFAULT_PORT,
+        username: str = "",
+        password: str = "",
+        source_entity_id: str = "",
+    ):
+        """Render manual form with defaults."""
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_HOST, default=host): str,
+                vol.Required(CONF_PORT, default=port): int,
+                vol.Optional(CONF_USERNAME, default=username): str,
+                vol.Optional(CONF_PASSWORD, default=password): str,
+                vol.Optional(CONF_SOURCE_ENTITY_ID, default=source_entity_id): str,
+            }
+        )
+        return self.async_show_form(step_id="manual", data_schema=schema, errors=errors or {})
+
+    async def _async_discover_candidates(self) -> list[_DiscoveryCandidate]:
+        """Discover likely Shelly Wall Display devices from HA registries."""
+        dev_reg = dr.async_get(self.hass)
+        ent_reg = er.async_get(self.hass)
+
+        candidates: list[_DiscoveryCandidate] = []
+
+        for device in dev_reg.devices.values():
+            manufacturer = (device.manufacturer or "").lower()
+            model = (device.model or "").lower()
+            name = (device.name or "").lower()
+
+            if "shelly" not in manufacturer:
+                continue
+            if "x2i" not in model and "x2i" not in name and "wall display" not in model:
+                continue
+
+            host, port = self._host_from_device(device)
+            if host is None:
+                continue
+
+            entities = er.async_entries_for_device(ent_reg, device.id)
+            source_entity_id = entities[0].entity_id if entities else None
+
+            label_name = device.name_by_user or device.name or "Shelly Wall Display X2i"
+            label = f"{label_name} ({host}:{port})"
+            candidates.append(
+                _DiscoveryCandidate(
+                    key=device.id,
+                    label=label,
+                    host=host,
+                    port=port,
+                    source_entity_id=source_entity_id,
+                )
+            )
+
+        candidates.sort(key=lambda item: item.label.lower())
+        return candidates
+
+    @staticmethod
+    def _host_from_device(device: dr.DeviceEntry) -> tuple[str | None, int]:
+        """Extract host/port from device configuration URL."""
+        url = device.configuration_url
+        if not url:
+            return None, DEFAULT_PORT
+
+        parsed = urlparse(url)
+        if not parsed.hostname:
+            return None, DEFAULT_PORT
+
+        return parsed.hostname, parsed.port or DEFAULT_PORT
 
     @staticmethod
     @callback

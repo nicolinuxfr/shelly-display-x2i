@@ -9,7 +9,8 @@ This integration is intended to complement the official Shelly integration:
 
 ## Features
 
-- Config flow with IP/host, port, optional credentials
+- Auto-discovery of Shelly Wall Display X2i devices already known by Home Assistant (pre-fills host/port/source entity)
+- Manual config flow fallback with IP/host, port, optional credentials
 - `switch`:
   - Screen power (`Ui.Screen.Set`)
 - `number`:
@@ -31,7 +32,8 @@ This integration is intended to complement the official Shelly integration:
 
 1. Settings -> Devices & Services -> Add Integration
 2. Search for `Shelly Wall Display X2i RPC`
-3. Fill:
+3. If HA already knows compatible Shelly displays, pick one from the discovery list and validate.
+4. Otherwise use manual setup and fill:
    - Host/IP (for example `192.168.1.50`)
    - Port (default `80`)
    - Optional credentials
