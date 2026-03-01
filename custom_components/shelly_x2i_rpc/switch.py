@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -9,7 +11,10 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import ShellyX2iRPCRuntimeData
+from .client import ShellyRPCError
 from .entity import ShellyX2iBaseEntity
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
@@ -60,26 +65,40 @@ class ShellyScreenPowerSwitch(ShellyX2iBaseEntity, SwitchEntity, RestoreEntity):
 
     async def async_turn_on(self, **kwargs) -> None:
         """Turn the screen on."""
+        self._optimistic_state = True
+        self.async_write_ha_state()
         await self.coordinator.client.call("Ui.Screen.Set", {"on": True})
+
+        # Don't block UI interaction on optional brightness restore.
         pending_level = self.coordinator.pending_brightness_level
         if isinstance(pending_level, int):
+            self.hass.async_create_task(self._async_apply_pending_brightness(pending_level))
+
+        # Refresh in background to keep action path snappy.
+        self.hass.async_create_task(self.coordinator.async_request_refresh())
+
+    async def _async_apply_pending_brightness(self, level: int) -> None:
+        """Apply pending brightness level asynchronously."""
+        try:
             await self.coordinator.client.call(
                 "Ui.SetConfig",
                 {
                     "config": {
                         "brightness": {
-                            "level": pending_level,
+                            "level": level,
                             "auto": False,
                         }
                     }
                 },
             )
             self.coordinator.clear_pending_brightness_level()
-        self._optimistic_state = True
-        await self.coordinator.async_request_refresh()
+            self.hass.async_create_task(self.coordinator.async_request_refresh())
+        except ShellyRPCError as err:
+            _LOGGER.warning("Failed applying pending brightness level %s: %s", level, err)
 
     async def async_turn_off(self, **kwargs) -> None:
         """Turn the screen off."""
-        await self.coordinator.client.call("Ui.Screen.Set", {"on": False})
         self._optimistic_state = False
-        await self.coordinator.async_request_refresh()
+        self.async_write_ha_state()
+        await self.coordinator.client.call("Ui.Screen.Set", {"on": False})
+        self.hass.async_create_task(self.coordinator.async_request_refresh())

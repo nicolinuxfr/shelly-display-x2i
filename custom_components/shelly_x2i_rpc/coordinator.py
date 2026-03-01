@@ -101,7 +101,39 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         methods = methods_result.get("methods", [])
         if not isinstance(methods, list):
             methods = []
+        screen_on = _parse_screen_on(status)
         brightness = _parse_brightness(config, status)
+        _LOGGER.debug(
+            "RPC state: screen_on=%s brightness=%s pending=%s",
+            screen_on,
+            brightness,
+            self._pending_brightness_level,
+        )
+
+        # If brightness was set while the screen was off, apply it as soon as the
+        # screen is back on, including when wake-up was triggered directly on device.
+        if screen_on is True and isinstance(self._pending_brightness_level, int):
+            pending_level = self._pending_brightness_level
+            if brightness != pending_level:
+                try:
+                    await self.client.call(
+                        "Ui.SetConfig",
+                        {
+                            "config": {
+                                "brightness": {
+                                    "level": pending_level,
+                                    "auto": False,
+                                }
+                            }
+                        },
+                    )
+                    brightness = pending_level
+                    _LOGGER.debug("Applied pending brightness level=%s after wake-up", pending_level)
+                except ShellyRPCError as err:
+                    _LOGGER.warning("Failed applying pending brightness level %s: %s", pending_level, err)
+            if brightness == pending_level:
+                self._pending_brightness_level = None
+
         if isinstance(brightness, int):
             if brightness > 0:
                 self._last_nonzero_brightness_level = brightness
@@ -112,7 +144,7 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "status": status,
             "config": config,
             "methods": set(m for m in methods if isinstance(m, str)),
-            "screen_on": _parse_screen_on(status),
+            "screen_on": screen_on,
             "brightness": brightness,
         }
         return parsed
