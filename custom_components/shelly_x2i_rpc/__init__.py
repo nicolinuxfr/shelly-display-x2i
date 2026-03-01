@@ -12,6 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
@@ -24,6 +25,8 @@ from .const import (
     CONF_HOST,
     CONF_PORT,
     CONF_SCAN_INTERVAL,
+    CONF_SOURCE_DEVICE_ID,
+    CONF_SOURCE_ENTITY_ID,
     DOMAIN,
     PLATFORMS,
     SERVICE_CALL_RPC,
@@ -103,6 +106,18 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up the config entry."""
+    if not entry.data.get(CONF_SOURCE_DEVICE_ID):
+        source_entity_id = entry.options.get(CONF_SOURCE_ENTITY_ID) or entry.data.get(
+            CONF_SOURCE_ENTITY_ID
+        )
+        if source_entity_id:
+            ent_reg = async_get_entity_registry(hass)
+            source_entry = ent_reg.async_get(source_entity_id) if ent_reg is not None else None
+            if source_entry is not None and source_entry.device_id:
+                data = dict(entry.data)
+                data[CONF_SOURCE_DEVICE_ID] = source_entry.device_id
+                hass.config_entries.async_update_entry(entry, data=data)
+
     session = async_get_clientsession(hass)
     client = ShellyRPCClient(
         session=session,

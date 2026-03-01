@@ -9,8 +9,16 @@ from homeassistant.helpers.entity import DeviceInfo, Entity
 from homeassistant.helpers.entity_registry import async_get
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import CONF_SOURCE_ENTITY_ID
+from .const import CONF_SOURCE_DEVICE_ID, CONF_SOURCE_ENTITY_ID
 from .coordinator import ShellyX2iRPCDataUpdateCoordinator
+
+
+def _find_device_from_device_id(hass, device_id: str | None) -> DeviceEntry | None:
+    """Resolve a device entry from a device_id."""
+    if not device_id:
+        return None
+    dev_reg = dr.async_get(hass)
+    return dev_reg.async_get(device_id)
 
 
 def _find_device_from_entity_id(hass, entity_id: str | None) -> DeviceEntry | None:
@@ -42,6 +50,11 @@ class ShellyX2iBaseEntity(CoordinatorEntity[ShellyX2iRPCDataUpdateCoordinator], 
     ) -> None:
         super().__init__(coordinator)
         self._entry = entry
+        self._source_device_id = (
+            entry.options.get(CONF_SOURCE_DEVICE_ID)
+            or entry.data.get(CONF_SOURCE_DEVICE_ID)
+            or None
+        )
         self._source_entity_id = (
             entry.options.get(CONF_SOURCE_ENTITY_ID)
             or entry.data.get(CONF_SOURCE_ENTITY_ID)
@@ -55,7 +68,9 @@ class ShellyX2iBaseEntity(CoordinatorEntity[ShellyX2iRPCDataUpdateCoordinator], 
     async def async_added_to_hass(self) -> None:
         """Attach entities to an existing Shelly device when requested."""
         await super().async_added_to_hass()
-        self.device_entry = _find_device_from_entity_id(self.hass, self._source_entity_id)
+        self.device_entry = _find_device_from_device_id(self.hass, self._source_device_id)
+        if self.device_entry is None:
+            self.device_entry = _find_device_from_entity_id(self.hass, self._source_entity_id)
 
     @property
     def device_info(self) -> DeviceInfo | None:

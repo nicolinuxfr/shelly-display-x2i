@@ -11,6 +11,7 @@ CONF_PORT = "port"
 CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
 CONF_SOURCE_ENTITY_ID = "source_entity_id"
+CONF_SOURCE_DEVICE_ID = "source_device_id"
 CONF_SCAN_INTERVAL = "scan_interval"
 
 DEFAULT_PORT = 80

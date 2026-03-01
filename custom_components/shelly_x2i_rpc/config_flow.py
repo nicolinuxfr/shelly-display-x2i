@@ -18,6 +18,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .client import ShellyRPCClient, ShellyRPCError
 from .const import (
     CONF_SCAN_INTERVAL,
+    CONF_SOURCE_DEVICE_ID,
     CONF_SOURCE_ENTITY_ID,
     DEFAULT_PORT,
     DEFAULT_SCAN_INTERVAL,
@@ -39,6 +40,7 @@ class _DiscoveryCandidate:
     label: str
     host: str
     port: int
+    source_device_id: str | None
     source_entity_id: str | None
     expected_model: str | None = None
     expected_unique_id: str | None = None
@@ -84,6 +86,7 @@ class ShellyX2iRPCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_PORT: candidate.port,
                     CONF_USERNAME: user_input.get(CONF_USERNAME) or None,
                     CONF_PASSWORD: user_input.get(CONF_PASSWORD) or None,
+                    CONF_SOURCE_DEVICE_ID: candidate.source_device_id,
                     CONF_SOURCE_ENTITY_ID: candidate.source_entity_id,
                 },
                 source_step="discovery",
@@ -115,6 +118,11 @@ class ShellyX2iRPCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         selected_key: str | None = None,
     ):
         """Validate RPC endpoint and create config entry."""
+        if not data.get(CONF_SOURCE_DEVICE_ID):
+            data[CONF_SOURCE_DEVICE_ID] = self._device_id_from_entity_id(
+                data.get(CONF_SOURCE_ENTITY_ID)
+            )
+
         client = ShellyRPCClient(
             async_get_clientsession(self.hass),
             host=data[CONF_HOST],
@@ -275,6 +283,7 @@ class ShellyX2iRPCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     label=label,
                     host=host,
                     port=port,
+                    source_device_id=device.id,
                     source_entity_id=source_entity_id,
                     expected_model=device.model,
                     expected_unique_id=expected_unique_id,
@@ -292,6 +301,7 @@ class ShellyX2iRPCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             entities = er.async_entries_for_config_entry(ent_reg, entry.entry_id)
             source_entity_id = self._select_source_entity(entities)
+            source_device_id = self._device_id_from_entity_id(source_entity_id)
             model = str(entry.data.get("model") or entry.options.get("model") or "").lower()
             title = entry.title or "Shelly device"
             candidates[f"ce::{entry.entry_id}"] = _DiscoveryCandidate(
@@ -299,6 +309,7 @@ class ShellyX2iRPCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 label=f"{title} ({host}:{port})",
                 host=host,
                 port=port,
+                source_device_id=source_device_id,
                 source_entity_id=source_entity_id,
                 expected_model=entry.data.get("model") or entry.options.get("model"),
                 expected_unique_id=entry.unique_id,
@@ -383,6 +394,16 @@ class ShellyX2iRPCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return entity.entity_id
         return entities[0].entity_id
 
+    def _device_id_from_entity_id(self, entity_id: str | None) -> str | None:
+        """Resolve a device id from an entity id."""
+        if not entity_id:
+            return None
+        ent_reg = er.async_get(self.hass)
+        if ent_reg is None:
+            return None
+        entry = ent_reg.async_get(entity_id)
+        return entry.device_id if entry is not None else None
+
     @staticmethod
     def _is_likely_x2i(model: str, name: str, user_name: str) -> bool:
         """Tell whether this candidate likely targets Wall Display X2i."""
@@ -452,13 +473,6 @@ class ShellyX2iRPCOptionsFlow(config_entries.OptionsFlow):
 
         schema = vol.Schema(
             {
-                vol.Optional(
-                    CONF_SOURCE_ENTITY_ID,
-                    default=self._config_entry.options.get(
-                        CONF_SOURCE_ENTITY_ID,
-                        self._config_entry.data.get(CONF_SOURCE_ENTITY_ID, ""),
-                    ),
-                ): str,
                 vol.Optional(
                     CONF_SCAN_INTERVAL,
                     default=self._config_entry.options.get(

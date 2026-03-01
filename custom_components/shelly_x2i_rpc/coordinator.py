@@ -70,6 +70,7 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.client = client
         self._pending_brightness_level: int | None = None
         self._last_nonzero_brightness_level: int | None = None
+        self._expected_screen_on: bool | None = None
 
     @property
     def pending_brightness_level(self) -> int | None:
@@ -80,6 +81,15 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def last_nonzero_brightness_level(self) -> int | None:
         """Most recent non-zero brightness reported by the device."""
         return self._last_nonzero_brightness_level
+
+    @property
+    def expected_screen_on(self) -> bool | None:
+        """Best-known power state when firmware does not expose screen_on."""
+        return self._expected_screen_on
+
+    def set_expected_screen_on(self, state: bool | None) -> None:
+        """Set expected power state from user actions or observed telemetry."""
+        self._expected_screen_on = state
 
     def set_pending_brightness_level(self, level: int) -> None:
         """Remember brightness level for later application."""
@@ -103,16 +113,24 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             methods = []
         screen_on = _parse_screen_on(status)
         brightness = _parse_brightness(config, status)
+        if isinstance(screen_on, bool):
+            self._expected_screen_on = screen_on
+        elif isinstance(brightness, int) and brightness > 0:
+            # On firmware variants where screen_on is never reported, non-zero
+            # brightness is the best signal that the panel is currently on.
+            self._expected_screen_on = True
         _LOGGER.debug(
-            "RPC state: screen_on=%s brightness=%s pending=%s",
+            "RPC state: screen_on=%s expected=%s brightness=%s pending=%s",
             screen_on,
+            self._expected_screen_on,
             brightness,
             self._pending_brightness_level,
         )
 
         # If brightness was set while the screen was off, apply it as soon as the
         # screen is back on, including when wake-up was triggered directly on device.
-        if screen_on is True and isinstance(self._pending_brightness_level, int):
+        effective_screen_on = screen_on if isinstance(screen_on, bool) else self._expected_screen_on
+        if effective_screen_on is True and isinstance(self._pending_brightness_level, int):
             pending_level = self._pending_brightness_level
             if pending_level <= 0:
                 self._pending_brightness_level = None
