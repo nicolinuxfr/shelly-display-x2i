@@ -81,7 +81,15 @@ class ShellyScreenBrightness(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set brightness through RPC."""
+        target_percent = max(0.0, min(100.0, float(value)))
         level = _percent_to_raw(float(value))
+        screen_is_on = self.coordinator.data.get("screen_on")
+
+        # On X2i, setting brightness while screen is off can be ignored and then
+        # overwritten by the next status refresh. Wake the screen first.
+        if target_percent > 0.0 and screen_is_on is False:
+            await self.coordinator.client.call("Ui.Screen.Set", {"on": True})
+
         await self.coordinator.client.call(
             "Ui.SetConfig",
             {
@@ -93,5 +101,5 @@ class ShellyScreenBrightness(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
                 }
             },
         )
-        self._optimistic_value = max(0.0, min(100.0, float(value)))
+        self._optimistic_value = target_percent
         await self.coordinator.async_request_refresh()
