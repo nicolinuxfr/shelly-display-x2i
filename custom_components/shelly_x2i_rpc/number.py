@@ -75,6 +75,16 @@ class ShellyScreenBrightness(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
     def native_value(self) -> float | None:
         """Return the current brightness."""
         raw_value = self.coordinator.data.get("brightness")
+        screen_is_on = self.coordinator.data.get("screen_on")
+
+        if screen_is_on is False:
+            pending_level = self.coordinator.pending_brightness_level
+            if isinstance(pending_level, int):
+                return _raw_to_percent(float(pending_level))
+            last_nonzero = self.coordinator.last_nonzero_brightness_level
+            if isinstance(last_nonzero, int):
+                return _raw_to_percent(float(last_nonzero))
+
         if isinstance(raw_value, (int, float)):
             return _raw_to_percent(float(raw_value))
         return self._optimistic_value
@@ -82,13 +92,16 @@ class ShellyScreenBrightness(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
     async def async_set_native_value(self, value: float) -> None:
         """Set brightness through RPC."""
         target_percent = max(0.0, min(100.0, float(value)))
-        level = _percent_to_raw(float(value))
+        level = _percent_to_raw(target_percent)
         screen_is_on = self.coordinator.data.get("screen_on")
 
-        # On X2i, setting brightness while screen is off can be ignored and then
-        # overwritten by the next status refresh. Wake the screen first.
-        if target_percent > 0.0 and screen_is_on is False:
-            await self.coordinator.client.call("Ui.Screen.Set", {"on": True})
+        if screen_is_on is False:
+            # Keep brightness independent from power: remember target while off,
+            # then apply it when the screen is turned on.
+            self.coordinator.set_pending_brightness_level(level)
+            self._optimistic_value = target_percent
+            self.async_write_ha_state()
+            return
 
         await self.coordinator.client.call(
             "Ui.SetConfig",
@@ -101,5 +114,6 @@ class ShellyScreenBrightness(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
                 }
             },
         )
+        self.coordinator.clear_pending_brightness_level()
         self._optimistic_value = target_percent
         await self.coordinator.async_request_refresh()

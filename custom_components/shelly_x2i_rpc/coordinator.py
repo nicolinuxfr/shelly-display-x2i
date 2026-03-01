@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .client import ShellyRPCClient, ShellyRPCError
-from .const import DOMAIN, UPDATE_INTERVAL
+from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,36 +32,62 @@ def _parse_screen_on(status: dict[str, Any]) -> bool | None:
 
 
 def _parse_brightness(config: dict[str, Any], status: dict[str, Any]) -> int | None:
-    """Try common fields used by Shelly UI brightness config."""
-    ui_cfg = config.get("ui")
-    if isinstance(ui_cfg, dict):
-        brightness = ui_cfg.get("brightness")
-        if isinstance(brightness, dict):
-            level = brightness.get("level")
-            if isinstance(level, int):
-                return level
-
+    """Parse brightness, preferring live status over potentially stale config."""
     ui_status = status.get("ui")
     if isinstance(ui_status, dict):
         brightness = ui_status.get("brightness")
         if isinstance(brightness, dict):
             level = brightness.get("level")
-            if isinstance(level, int):
-                return level
+            if isinstance(level, (int, float)):
+                return int(round(level))
+
+    ui_cfg = config.get("ui")
+    if isinstance(ui_cfg, dict):
+        brightness = ui_cfg.get("brightness")
+        if isinstance(brightness, dict):
+            level = brightness.get("level")
+            if isinstance(level, (int, float)):
+                return int(round(level))
     return None
 
 
 class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Fetch and cache Shelly X2i RPC data."""
 
-    def __init__(self, hass: HomeAssistant, client: ShellyRPCClient, name: str) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        client: ShellyRPCClient,
+        name: str,
+        update_interval: timedelta,
+    ) -> None:
         super().__init__(
             hass,
             logger=_LOGGER,
             name=f"{DOMAIN}_{name}",
-            update_interval=UPDATE_INTERVAL,
+            update_interval=update_interval,
         )
         self.client = client
+        self._pending_brightness_level: int | None = None
+        self._last_nonzero_brightness_level: int | None = None
+
+    @property
+    def pending_brightness_level(self) -> int | None:
+        """Brightness level to apply on next screen wake-up."""
+        return self._pending_brightness_level
+
+    @property
+    def last_nonzero_brightness_level(self) -> int | None:
+        """Most recent non-zero brightness reported by the device."""
+        return self._last_nonzero_brightness_level
+
+    def set_pending_brightness_level(self, level: int) -> None:
+        """Remember brightness level for later application."""
+        self._pending_brightness_level = max(0, min(250, int(level)))
+
+    def clear_pending_brightness_level(self) -> None:
+        """Drop pending brightness level."""
+        self._pending_brightness_level = None
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch latest device data."""
@@ -74,12 +101,18 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         methods = methods_result.get("methods", [])
         if not isinstance(methods, list):
             methods = []
+        brightness = _parse_brightness(config, status)
+        if isinstance(brightness, int):
+            if brightness > 0:
+                self._last_nonzero_brightness_level = brightness
+            if self._pending_brightness_level == brightness:
+                self._pending_brightness_level = None
 
         parsed: dict[str, Any] = {
             "status": status,
             "config": config,
             "methods": set(m for m in methods if isinstance(m, str)),
             "screen_on": _parse_screen_on(status),
-            "brightness": _parse_brightness(config, status),
+            "brightness": brightness,
         }
         return parsed

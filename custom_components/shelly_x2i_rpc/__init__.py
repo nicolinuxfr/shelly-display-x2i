@@ -23,9 +23,12 @@ from .const import (
     ATTR_PARAMS,
     CONF_HOST,
     CONF_PORT,
+    CONF_SCAN_INTERVAL,
     DOMAIN,
     PLATFORMS,
     SERVICE_CALL_RPC,
+    DEFAULT_SCAN_INTERVAL,
+    build_update_interval,
 )
 from .coordinator import ShellyX2iRPCDataUpdateCoordinator
 
@@ -48,6 +51,23 @@ SERVICE_SCHEMA = vol.Schema(
         vol.Optional(ATTR_ENTRY_ID): cv.string,
     }
 )
+
+
+def _get_scan_interval_seconds(entry: ConfigEntry) -> int:
+    """Return configured scan interval seconds with safe fallback."""
+    raw_value = entry.options.get(
+        CONF_SCAN_INTERVAL,
+        entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+    )
+    try:
+        return int(raw_value)
+    except (TypeError, ValueError):
+        return DEFAULT_SCAN_INTERVAL
+
+
+async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload config entry when options are updated."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -110,7 +130,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if isinstance(mac, str) and mac:
         device_info["connections"] = {(dr.CONNECTION_NETWORK_MAC, mac)}
 
-    coordinator = ShellyX2iRPCDataUpdateCoordinator(hass, client, str(name))
+    update_interval = build_update_interval(_get_scan_interval_seconds(entry))
+    coordinator = ShellyX2iRPCDataUpdateCoordinator(
+        hass,
+        client,
+        str(name),
+        update_interval,
+    )
     await coordinator.async_config_entry_first_refresh()
 
     entry.runtime_data = ShellyX2iRPCRuntimeData(
@@ -118,6 +144,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coordinator=coordinator,
         device_info=device_info,
     )
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True

@@ -39,7 +39,8 @@
       "init": {
         "title": "Options",
         "data": {
-          "source_entity_id": "Existing Shelly entity ID (optional)"
+          "source_entity_id": "Existing Shelly entity ID (optional)",
+          "scan_interval": "Polling interval (seconds)"
         }
       }
     }

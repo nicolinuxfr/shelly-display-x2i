@@ -16,7 +16,15 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .client import ShellyRPCClient, ShellyRPCError
-from .const import CONF_SOURCE_ENTITY_ID, DEFAULT_PORT, DOMAIN
+from .const import (
+    CONF_SCAN_INTERVAL,
+    CONF_SOURCE_ENTITY_ID,
+    DEFAULT_PORT,
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+    MAX_SCAN_INTERVAL,
+    MIN_SCAN_INTERVAL,
+)
 
 CONF_DISCOVERED_DEVICE = "discovered_device"
 _DISCOVERY_MANUAL = "__manual__"
@@ -451,6 +459,16 @@ class ShellyX2iRPCOptionsFlow(config_entries.OptionsFlow):
                         self._config_entry.data.get(CONF_SOURCE_ENTITY_ID, ""),
                     ),
                 ): str,
+                vol.Optional(
+                    CONF_SCAN_INTERVAL,
+                    default=self._config_entry.options.get(
+                        CONF_SCAN_INTERVAL,
+                        self._config_entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+                    ),
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL),
+                ),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)

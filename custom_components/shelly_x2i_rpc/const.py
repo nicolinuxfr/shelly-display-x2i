@@ -15,11 +15,16 @@ CONF_SCAN_INTERVAL = "scan_interval"
 
 DEFAULT_PORT = 80
 DEFAULT_SCAN_INTERVAL = 30
+MIN_SCAN_INTERVAL = 5
+MAX_SCAN_INTERVAL = 300
 DEFAULT_NAME = "Shelly Wall Display X2i RPC"
 
 PLATFORMS = ["switch", "number", "button"]
 
-UPDATE_INTERVAL = timedelta(seconds=DEFAULT_SCAN_INTERVAL)
+def build_update_interval(scan_interval_seconds: int) -> timedelta:
+    """Build a safe update interval from user-provided seconds."""
+    safe = max(MIN_SCAN_INTERVAL, min(MAX_SCAN_INTERVAL, int(scan_interval_seconds)))
+    return timedelta(seconds=safe)
 
 SERVICE_CALL_RPC = "call_rpc"
 ATTR_ENTRY_ID = "entry_id"

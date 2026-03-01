@@ -61,6 +61,20 @@ class ShellyScreenPowerSwitch(ShellyX2iBaseEntity, SwitchEntity, RestoreEntity):
     async def async_turn_on(self, **kwargs) -> None:
         """Turn the screen on."""
         await self.coordinator.client.call("Ui.Screen.Set", {"on": True})
+        pending_level = self.coordinator.pending_brightness_level
+        if isinstance(pending_level, int):
+            await self.coordinator.client.call(
+                "Ui.SetConfig",
+                {
+                    "config": {
+                        "brightness": {
+                            "level": pending_level,
+                            "auto": False,
+                        }
+                    }
+                },
+            )
+            self.coordinator.clear_pending_brightness_level()
         self._optimistic_state = True
         await self.coordinator.async_request_refresh()
 
