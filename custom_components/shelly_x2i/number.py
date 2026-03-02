@@ -133,16 +133,6 @@ class ShellyScreenBrightness(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
 
         _LOGGER.debug("Brightness set live -> level=%s (%s%%)", level, target_percent)
         self.coordinator.set_expected_screen_on(True)
-        await self.coordinator.client.call(
-            "Ui.SetConfig",
-            {
-                "config": {
-                    "brightness": {
-                        "level": level,
-                        "auto": False,
-                    }
-                }
-            },
-        )
+        await self.coordinator.async_set_brightness_level(level)
         self._optimistic_value = target_percent_int
         await self.coordinator.async_request_refresh()

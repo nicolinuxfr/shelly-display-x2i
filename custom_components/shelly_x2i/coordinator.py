@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import logging
 from datetime import timedelta
 from typing import Any
@@ -111,6 +112,38 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Drop pending brightness level."""
         self._pending_brightness_level = None
 
+    def _build_brightness_ui_config(self, level: int) -> dict[str, Any]:
+        """Build a firmware-compatible Ui.SetConfig payload for brightness."""
+        clamped_level = max(0, min(250, int(level)))
+
+        config = self.data.get("config", {})
+        ui_config = config.get("ui") if isinstance(config, dict) else None
+        brightness_cfg = ui_config.get("brightness") if isinstance(ui_config, dict) else None
+
+        if isinstance(brightness_cfg, dict):
+            payload_cfg = deepcopy(brightness_cfg)
+            payload_cfg["level"] = clamped_level
+            if "brightness" in payload_cfg and isinstance(payload_cfg["brightness"], (int, float)):
+                payload_cfg["brightness"] = clamped_level
+            if isinstance(payload_cfg.get("auto"), bool):
+                payload_cfg["auto"] = False
+            if isinstance(payload_cfg.get("auto_brightness"), bool):
+                payload_cfg["auto_brightness"] = False
+            if isinstance(payload_cfg.get("enabled"), bool):
+                payload_cfg["enabled"] = True
+            if isinstance(payload_cfg.get("mode"), str):
+                payload_cfg["mode"] = "manual"
+            return {"config": {"brightness": payload_cfg}}
+
+        if isinstance(brightness_cfg, (int, float)):
+            return {"config": {"brightness": clamped_level}}
+
+        return {"config": {"brightness": {"level": clamped_level, "auto": False}}}
+
+    async def async_set_brightness_level(self, level: int) -> None:
+        """Set screen brightness using Ui.SetConfig."""
+        await self.client.call("Ui.SetConfig", self._build_brightness_ui_config(level))
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch latest device data."""
         try:
@@ -147,24 +180,10 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._pending_brightness_level = None
             elif brightness_config != pending_level:
                 try:
-                    await self.client.call(
-                        "Ui.SetConfig",
-                        {
-                            "config": {
-                                "brightness": {
-                                    "level": pending_level,
-                                    "auto": False,
-                                }
-                            }
-                        },
-                    )
-                    brightness = pending_level
-                    brightness_config = pending_level
-                    _LOGGER.debug("Applied pending brightness level=%s after wake-up", pending_level)
+                    await self.async_set_brightness_level(pending_level)
+                    _LOGGER.debug("Sent pending brightness level=%s", pending_level)
                 except ShellyRPCError as err:
                     _LOGGER.warning("Failed applying pending brightness level %s: %s", pending_level, err)
-            if brightness_config == pending_level:
-                self._pending_brightness_level = None
 
         for level in (brightness_status, brightness_config):
             if isinstance(level, int) and level > 0:

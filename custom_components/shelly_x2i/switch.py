@@ -82,17 +82,7 @@ class ShellyScreenPowerSwitch(ShellyX2iBaseEntity, SwitchEntity, RestoreEntity):
             _LOGGER.debug("Ui.Screen.Set done on=%s", on)
             if on and isinstance(pending_level, int) and pending_level > 0:
                 _LOGGER.debug("Restoring brightness level=%s after power on", pending_level)
-                await self.coordinator.client.call(
-                    "Ui.SetConfig",
-                    {
-                        "config": {
-                            "brightness": {
-                                "level": pending_level,
-                                "auto": False,
-                            }
-                        }
-                    },
-                )
+                await self.coordinator.async_set_brightness_level(pending_level)
                 # Keep pending until coordinator confirms the device really
                 # reports this value in GetConfig/GetStatus.
             self.hass.async_create_task(self.coordinator.async_request_refresh())
