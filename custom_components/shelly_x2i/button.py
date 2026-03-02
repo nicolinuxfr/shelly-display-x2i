@@ -7,6 +7,7 @@ from typing import Any, Awaitable, Callable
 
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -35,13 +36,8 @@ async def async_setup_entry(
             key="refresh",
             name="Refresh",
             icon="mdi:refresh",
+            entity_category=EntityCategory.CONFIG,
             press_fn=lambda entity: entity.coordinator.async_request_refresh(),
-        ),
-        ShellyX2iButtonDescription(
-            key="reboot",
-            name="Reboot",
-            icon="mdi:restart",
-            press_fn=lambda entity: entity.coordinator.client.call("Shelly.Reboot"),
         ),
     )
     entities = [

@@ -4,7 +4,7 @@ Custom integration to add RPC-only entities for a Shelly Wall Display X2i.
 
 This integration is intended to complement the official Shelly integration:
 - keep official Shelly entities
-- add extra controls exposed through RPC (screen power, brightness, reboot, raw RPC service)
+- add extra controls exposed through RPC (screen power, brightness, raw RPC service)
 - optionally attach these entities to the same Home Assistant device by providing an existing Shelly entity ID in setup
 
 ## Features
@@ -17,7 +17,6 @@ This integration is intended to complement the official Shelly integration:
   - Screen brightness (`Ui.SetConfig`)
 - `button`:
   - Refresh
-  - Reboot
 - Service:
   - `shelly_x2i.call_rpc` to execute any RPC method
 
