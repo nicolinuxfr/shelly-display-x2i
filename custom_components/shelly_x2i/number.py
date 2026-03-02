@@ -19,7 +19,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _raw_to_percent(raw_level: float) -> int:
-    """Convert Shelly brightness level (0..250) to Home Assistant integer percentage."""
+    """Convert Shelly raw brightness level (0..255) to integer percentage."""
     clamped = max(0.0, min(float(_SHELLY_BRIGHTNESS_MAX), raw_level))
     return int(round((clamped / float(_SHELLY_BRIGHTNESS_MAX)) * 100.0))
 
@@ -90,7 +90,7 @@ class ShellyScreenBrightness(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
         if effective_screen_on is False:
             pending_level = self.coordinator.pending_brightness_level
             if isinstance(pending_level, int):
-                return _raw_to_percent(float(pending_level))
+                return pending_level
             if isinstance(raw_config, (int, float)):
                 return _raw_to_percent(float(raw_config))
             last_nonzero = self.coordinator.last_nonzero_brightness_level

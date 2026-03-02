@@ -23,8 +23,6 @@ def _normalize_to_percent(level: int | float | None) -> int | None:
     if not isinstance(level, (int, float)):
         return None
     value = int(round(float(level)))
-    if value <= 100:
-        return max(0, value)
     return int(round((max(0, min(_SHELLY_BRIGHTNESS_READ_MAX, value)) / _SHELLY_BRIGHTNESS_READ_MAX) * 100))
 
 
