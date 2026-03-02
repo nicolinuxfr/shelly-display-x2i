@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import asyncio
 from typing import Any
 
 import aiohttp
@@ -46,22 +47,44 @@ class ShellyRPCClient:
 
     async def call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         """Call a Shelly RPC method."""
-        self._request_id += 1
-        payload: dict[str, Any] = {"id": self._request_id, "method": method}
-        if params is not None:
-            payload["params"] = params
+        timeout = aiohttp.ClientTimeout(total=10)
+        attempts = 3
+        last_error: Exception | None = None
+        body: dict[str, Any] | None = None
 
-        try:
-            async with self._session.post(
-                self._url,
-                json=payload,
-                auth=self._auth,
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as response:
-                response.raise_for_status()
-                body = await response.json()
-        except (aiohttp.ClientError, TimeoutError, ValueError) as err:
-            raise ShellyRPCError(f"RPC HTTP error for {method}: {err}") from err
+        for attempt in range(1, attempts + 1):
+            self._request_id += 1
+            payload: dict[str, Any] = {"id": self._request_id, "method": method}
+            if params is not None:
+                payload["params"] = params
+
+            try:
+                async with self._session.post(
+                    self._url,
+                    json=payload,
+                    auth=self._auth,
+                    timeout=timeout,
+                ) as response:
+                    response.raise_for_status()
+                    body = await response.json()
+                break
+            except asyncio.TimeoutError as err:
+                last_error = err
+                if attempt < attempts:
+                    await asyncio.sleep(0.3 * attempt)
+                    continue
+                raise ShellyRPCError(
+                    f"RPC timeout for {method} on {self._url} after {attempts} attempts"
+                ) from err
+            except (aiohttp.ClientError, ValueError) as err:
+                last_error = err
+                raise ShellyRPCError(f"RPC HTTP error for {method} on {self._url}: {err!r}") from err
+
+        if last_error is not None and body is None:
+            raise ShellyRPCError(f"RPC HTTP error for {method} on {self._url}: {last_error!r}")
+
+        if body is None:
+            raise ShellyRPCError(f"RPC HTTP error for {method} on {self._url}: empty response")
 
         if "error" in body:
             raise ShellyRPCError(f"RPC error for {method}: {body['error']}")

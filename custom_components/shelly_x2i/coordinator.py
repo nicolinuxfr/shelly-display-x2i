@@ -158,7 +158,6 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             status = await self.client.call("Shelly.GetStatus")
             config = await self.client.call("Shelly.GetConfig")
-            sys_status = await self.client.call("Sys.GetStatus")
             methods_result = await self.client.call("Shelly.ListMethods")
         except ShellyRPCError as err:
             raise UpdateFailed(str(err)) from err
@@ -166,6 +165,13 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         methods = methods_result.get("methods", [])
         if not isinstance(methods, list):
             methods = []
+        methods_set = set(m for m in methods if isinstance(m, str))
+        sys_status: dict[str, Any] = {}
+        if "Sys.GetStatus" in methods_set:
+            try:
+                sys_status = await self.client.call("Sys.GetStatus")
+            except ShellyRPCError as err:
+                _LOGGER.debug("Sys.GetStatus unavailable/failed: %s", err)
         screen_on = _parse_screen_on(status)
         brightness_status = _parse_brightness_status(status)
         brightness_config = _parse_brightness_config(config)
@@ -214,7 +220,7 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "status": status,
             "config": config,
             "sys_status": sys_status,
-            "methods": set(m for m in methods if isinstance(m, str)),
+            "methods": methods_set,
             "screen_on": screen_on,
             "brightness_status": brightness_status,
             "brightness_config": brightness_config,

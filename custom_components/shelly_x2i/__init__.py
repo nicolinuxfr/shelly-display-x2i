@@ -11,6 +11,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
 import homeassistant.helpers.config_validation as cv
@@ -131,7 +132,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         password=entry.data.get(CONF_PASSWORD),
     )
 
-    info = await client.call("Shelly.GetDeviceInfo")
+    try:
+        info = await client.call("Shelly.GetDeviceInfo")
+    except ShellyRPCError as err:
+        raise ConfigEntryNotReady(f"Unable to reach Shelly RPC endpoint: {err}") from err
     name = info.get("name") or "Shelly Wall Display X2i"
     mac = info.get("mac")
     model = info.get("model")
@@ -156,7 +160,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         str(name),
         update_interval,
     )
-    await coordinator.async_config_entry_first_refresh()
+    try:
+        await coordinator.async_config_entry_first_refresh()
+    except Exception as err:
+        raise ConfigEntryNotReady(f"Initial Shelly RPC refresh failed: {err}") from err
 
     enable_notifications = bool(
         entry.options.get(
