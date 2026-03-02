@@ -14,6 +14,7 @@ from .client import ShellyRPCClient, ShellyRPCError
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+_SHELLY_BRIGHTNESS_READ_MAX = 255
 
 
 def _parse_screen_on(status: dict[str, Any]) -> bool | None:
@@ -64,6 +65,16 @@ def _parse_brightness_config(config: dict[str, Any]) -> int | None:
     return None
 
 
+def _normalize_to_percent(level: int | float | None) -> int | None:
+    """Normalize firmware brightness readings to integer percentage."""
+    if not isinstance(level, (int, float)):
+        return None
+    value = int(round(float(level)))
+    if value <= 100:
+        return max(0, value)
+    return int(round((max(0, min(_SHELLY_BRIGHTNESS_READ_MAX, value)) / _SHELLY_BRIGHTNESS_READ_MAX) * 100))
+
+
 class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Fetch and cache Shelly X2i RPC data."""
 
@@ -106,7 +117,7 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def set_pending_brightness_level(self, level: int) -> None:
         """Remember brightness level for later application."""
-        self._pending_brightness_level = max(0, min(250, int(level)))
+        self._pending_brightness_level = max(0, min(100, int(level)))
 
     def clear_pending_brightness_level(self) -> None:
         """Drop pending brightness level."""
@@ -114,7 +125,7 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _build_brightness_ui_config(self, level: int) -> dict[str, Any]:
         """Build a firmware-compatible Ui.SetConfig payload for brightness."""
-        clamped_level = max(0, min(250, int(level)))
+        clamped_level = max(0, min(100, int(level)))
 
         config = self.data.get("config", {})
         ui_config = config.get("ui") if isinstance(config, dict) else None
@@ -176,9 +187,10 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         effective_screen_on = screen_on if isinstance(screen_on, bool) else self._expected_screen_on
         if effective_screen_on is True and isinstance(self._pending_brightness_level, int):
             pending_level = self._pending_brightness_level
+            brightness_config_percent = _normalize_to_percent(brightness_config)
             if pending_level <= 0:
                 self._pending_brightness_level = None
-            elif brightness_config != pending_level:
+            elif brightness_config_percent != pending_level:
                 try:
                     await self.async_set_brightness_level(pending_level)
                     _LOGGER.debug("Sent pending brightness level=%s", pending_level)
@@ -188,10 +200,16 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for level in (brightness_status, brightness_config):
             if isinstance(level, int) and level > 0:
                 self._last_nonzero_brightness_level = level
-        if isinstance(brightness_config, int) and self._pending_brightness_level == brightness_config:
+        if (
+            isinstance(self._pending_brightness_level, int)
+            and _normalize_to_percent(brightness_config) == self._pending_brightness_level
+        ):
             self._pending_brightness_level = None
-        elif isinstance(brightness_status, int) and self._pending_brightness_level == brightness_status:
-                self._pending_brightness_level = None
+        elif (
+            isinstance(self._pending_brightness_level, int)
+            and _normalize_to_percent(brightness_status) == self._pending_brightness_level
+        ):
+            self._pending_brightness_level = None
 
         parsed: dict[str, Any] = {
             "status": status,

@@ -15,6 +15,17 @@ from .client import ShellyRPCError
 from .entity import ShellyX2iBaseEntity
 
 _LOGGER = logging.getLogger(__name__)
+_SHELLY_BRIGHTNESS_READ_MAX = 255
+
+
+def _normalize_to_percent(level: int | float | None) -> int | None:
+    """Normalize firmware brightness readings to integer percentage."""
+    if not isinstance(level, (int, float)):
+        return None
+    value = int(round(float(level)))
+    if value <= 100:
+        return max(0, value)
+    return int(round((max(0, min(_SHELLY_BRIGHTNESS_READ_MAX, value)) / _SHELLY_BRIGHTNESS_READ_MAX) * 100))
 
 
 async def async_setup_entry(
@@ -103,8 +114,9 @@ class ShellyScreenPowerSwitch(ShellyX2iBaseEntity, SwitchEntity, RestoreEntity):
                 current = self.coordinator.data.get("brightness")
             if not isinstance(current, (int, float)):
                 current = self.coordinator.last_nonzero_brightness_level
-            if isinstance(current, (int, float)) and int(round(float(current))) > 0:
-                self.coordinator.set_pending_brightness_level(int(round(float(current))))
+            current_percent = _normalize_to_percent(current)
+            if isinstance(current_percent, int) and current_percent > 0:
+                self.coordinator.set_pending_brightness_level(current_percent)
 
         self._optimistic_state = False
         self.coordinator.set_expected_screen_on(False)
