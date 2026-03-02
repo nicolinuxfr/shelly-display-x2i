@@ -18,10 +18,10 @@ _SHELLY_BRIGHTNESS_MAX = 250
 _LOGGER = logging.getLogger(__name__)
 
 
-def _raw_to_percent(raw_level: float) -> float:
-    """Convert Shelly brightness level (0..250) to Home Assistant percentage."""
+def _raw_to_percent(raw_level: float) -> int:
+    """Convert Shelly brightness level (0..250) to Home Assistant integer percentage."""
     clamped = max(0.0, min(float(_SHELLY_BRIGHTNESS_MAX), raw_level))
-    return round((clamped / float(_SHELLY_BRIGHTNESS_MAX)) * 100.0, 1)
+    return int(round((clamped / float(_SHELLY_BRIGHTNESS_MAX)) * 100.0))
 
 
 def _percent_to_raw(percent: float) -> int:
@@ -57,7 +57,7 @@ class ShellyScreenBrightness(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
             key="screen_brightness",
             name="Brightness",
         )
-        self._optimistic_value: float | None = None
+        self._optimistic_value: int | None = None
 
     async def async_added_to_hass(self) -> None:
         """Restore last known value."""
@@ -70,12 +70,12 @@ class ShellyScreenBrightness(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
                     # Backward compatibility with old states stored as raw
                     # Shelly brightness levels (0..250).
                     restored_value = _raw_to_percent(restored_value)
-                self._optimistic_value = max(0.0, min(100.0, restored_value))
+                self._optimistic_value = int(round(max(0.0, min(100.0, restored_value))))
             except ValueError:
                 self._optimistic_value = None
 
     @property
-    def native_value(self) -> float | None:
+    def native_value(self) -> int | None:
         """Return the current brightness."""
         raw_value = self.coordinator.data.get("brightness")
         raw_status = self.coordinator.data.get("brightness_status")
@@ -114,28 +114,20 @@ class ShellyScreenBrightness(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
         """Set brightness through RPC."""
         target_percent = max(0.0, min(100.0, float(value)))
         level = _percent_to_raw(target_percent)
+        target_percent_int = int(round(target_percent))
         # Keep desired brightness until coordinator confirms device applied it.
         self.coordinator.set_pending_brightness_level(level)
         screen_is_on = self.coordinator.data.get("screen_on")
-        raw_status = self.coordinator.data.get("brightness_status")
-        raw_config = self.coordinator.data.get("brightness_config")
         effective_screen_on = (
             screen_is_on if isinstance(screen_is_on, bool) else self.coordinator.expected_screen_on
         )
-        likely_off_with_unknown_state = (
-            effective_screen_on is None
-            and isinstance(raw_status, (int, float))
-            and isinstance(raw_config, (int, float))
-            and int(round(float(raw_status))) == 0
-            and float(raw_config) > 0
-        )
 
-        if effective_screen_on is False or likely_off_with_unknown_state:
+        if effective_screen_on is False:
             # Keep brightness independent from power: remember target while off,
             # then apply it when the screen is turned on.
             _LOGGER.debug("Brightness set while OFF -> pending level=%s (%s%%)", level, target_percent)
             self.coordinator.set_pending_brightness_level(level)
-            self._optimistic_value = target_percent
+            self._optimistic_value = target_percent_int
             self.async_write_ha_state()
             return
 
@@ -152,5 +144,5 @@ class ShellyScreenBrightness(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
                 }
             },
         )
-        self._optimistic_value = target_percent
+        self._optimistic_value = target_percent_int
         await self.coordinator.async_request_refresh()
