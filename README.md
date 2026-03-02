@@ -13,10 +13,15 @@ This integration is intended to complement the official Shelly integration:
 - Manual config flow fallback with IP/host, port, optional credentials
 - `switch`:
   - Screen power (`Ui.Screen.Set`)
+  - Bluetooth enable (`BLE.SetConfig`, only when supported by firmware)
 - `number`:
   - Screen brightness (`Ui.SetConfig`)
 - `button`:
   - Refresh
+- Diagnostic entities from `Sys.GetStatus`:
+  - `sensor` uptime, free RAM, free filesystem
+  - `binary_sensor` restart required, updates available
+- Optional websocket notifications (`NotifyStatus` / `NotifyEvent`) to trigger fast state refresh in addition to polling
 - Service:
   - `shelly_x2i.call_rpc` to execute any RPC method
 

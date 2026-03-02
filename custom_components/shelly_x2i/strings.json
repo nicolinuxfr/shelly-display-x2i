@@ -40,7 +40,8 @@
         "title": "Options",
         "data": {
           "source_entity_id": "Existing Shelly entity ID (optional)",
-          "scan_interval": "Polling interval (seconds)"
+          "scan_interval": "Polling interval (seconds)",
+          "enable_notifications": "Enable websocket notifications"
         }
       }
     }
@@ -49,6 +50,9 @@
     "switch": {
       "screen_power": {
         "name": "Screen"
+      },
+      "ble_enabled": {
+        "name": "Bluetooth"
       }
     },
     "number": {
@@ -59,6 +63,25 @@
     "button": {
       "refresh": {
         "name": "Refresh"
+      }
+    },
+    "sensor": {
+      "uptime": {
+        "name": "Uptime"
+      },
+      "ram_free": {
+        "name": "Free RAM"
+      },
+      "fs_free": {
+        "name": "Free filesystem"
+      }
+    },
+    "binary_sensor": {
+      "restart_required": {
+        "name": "Restart required"
+      },
+      "updates_available": {
+        "name": "Updates available"
       }
     }
   },

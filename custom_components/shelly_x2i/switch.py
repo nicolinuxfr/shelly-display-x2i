@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import logging
 
 from homeassistant.components.switch import SwitchEntity
@@ -31,10 +32,13 @@ async def async_setup_entry(
 ) -> None:
     """Set up switch entities."""
     runtime: ShellyX2iRPCRuntimeData = entry.runtime_data
-    async_add_entities(
-        [ShellyScreenPowerSwitch(entry, runtime.coordinator, runtime.device_info)],
-        True,
-    )
+    entities: list[SwitchEntity] = [
+        ShellyScreenPowerSwitch(entry, runtime.coordinator, runtime.device_info),
+    ]
+    methods = runtime.coordinator.data.get("methods", set())
+    if isinstance(methods, set) and {"BLE.GetConfig", "BLE.SetConfig"}.issubset(methods):
+        entities.append(ShellyBleEnabledSwitch(entry, runtime.coordinator, runtime.device_info))
+    async_add_entities(entities, True)
 
 
 class ShellyScreenPowerSwitch(ShellyX2iBaseEntity, SwitchEntity, RestoreEntity):
@@ -120,3 +124,66 @@ class ShellyScreenPowerSwitch(ShellyX2iBaseEntity, SwitchEntity, RestoreEntity):
         self.coordinator.set_expected_screen_on(False)
         self.async_write_ha_state()
         self.hass.async_create_task(self._async_send_power_command(False, None))
+
+
+class ShellyBleEnabledSwitch(ShellyX2iBaseEntity, SwitchEntity, RestoreEntity):
+    """Enable/disable BLE component."""
+
+    _attr_translation_key = "ble_enabled"
+    _attr_icon = "mdi:bluetooth"
+
+    def __init__(self, entry, coordinator, fallback_device_info) -> None:
+        super().__init__(
+            entry=entry,
+            coordinator=coordinator,
+            fallback_device_info=fallback_device_info,
+            key="ble_enabled",
+            name="Bluetooth",
+        )
+        self._optimistic_state: bool | None = None
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last known state."""
+        await super().async_added_to_hass()
+        restored = await self.async_get_last_state()
+        if restored is not None:
+            self._optimistic_state = restored.state == "on"
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return BLE enabled state."""
+        config = self.coordinator.data.get("config")
+        if isinstance(config, dict):
+            ble = config.get("ble")
+            if isinstance(ble, dict) and isinstance(ble.get("enable"), bool):
+                return ble["enable"]
+        return self._optimistic_state
+
+    def _build_setconfig_payload(self, enable: bool) -> dict:
+        """Build BLE.SetConfig payload preserving known sub-options."""
+        config = self.coordinator.data.get("config")
+        ble_cfg = config.get("ble") if isinstance(config, dict) else None
+        payload_cfg = deepcopy(ble_cfg) if isinstance(ble_cfg, dict) else {}
+        payload_cfg["enable"] = bool(enable)
+        return {"config": payload_cfg}
+
+    async def _async_set_ble(self, enabled: bool) -> None:
+        try:
+            await self.coordinator.client.call("BLE.SetConfig", self._build_setconfig_payload(enabled))
+            self.hass.async_create_task(self.coordinator.async_request_refresh())
+        except ShellyRPCError as err:
+            _LOGGER.warning("Failed setting BLE to %s: %s", enabled, err)
+            self._optimistic_state = not enabled
+            self.async_write_ha_state()
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable BLE."""
+        self._optimistic_state = True
+        self.async_write_ha_state()
+        self.hass.async_create_task(self._async_set_ble(True))
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable BLE."""
+        self._optimistic_state = False
+        self.async_write_ha_state()
+        self.hass.async_create_task(self._async_set_ble(False))

@@ -22,6 +22,7 @@ from .const import (
     ATTR_ENTRY_ID,
     ATTR_METHOD,
     ATTR_PARAMS,
+    CONF_ENABLE_NOTIFICATIONS,
     CONF_HOST,
     CONF_PORT,
     CONF_SCAN_INTERVAL,
@@ -30,10 +31,12 @@ from .const import (
     DOMAIN,
     PLATFORMS,
     SERVICE_CALL_RPC,
+    DEFAULT_ENABLE_NOTIFICATIONS,
     DEFAULT_SCAN_INTERVAL,
     build_update_interval,
 )
 from .coordinator import ShellyX2iRPCDataUpdateCoordinator
+from .notifications import ShellyNotificationListener
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -45,6 +48,7 @@ class ShellyX2iRPCRuntimeData:
     client: ShellyRPCClient
     coordinator: ShellyX2iRPCDataUpdateCoordinator
     device_info: dict[str, Any]
+    notification_listener: ShellyNotificationListener | None = None
 
 
 SERVICE_SCHEMA = vol.Schema(
@@ -154,10 +158,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     await coordinator.async_config_entry_first_refresh()
 
+    enable_notifications = bool(
+        entry.options.get(
+            CONF_ENABLE_NOTIFICATIONS,
+            entry.data.get(CONF_ENABLE_NOTIFICATIONS, DEFAULT_ENABLE_NOTIFICATIONS),
+        )
+    )
+    notification_listener: ShellyNotificationListener | None = None
+    if enable_notifications:
+        notification_listener = ShellyNotificationListener(
+            session=session,
+            ws_url=client.ws_url,
+            ws_headers=client.ws_headers(),
+            coordinator=coordinator,
+        )
+        notification_listener.start()
+
     entry.runtime_data = ShellyX2iRPCRuntimeData(
         client=client,
         coordinator=coordinator,
         device_info=device_info,
+        notification_listener=notification_listener,
     )
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
@@ -167,6 +188,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload config entry."""
+    runtime: ShellyX2iRPCRuntimeData = entry.runtime_data
+    if runtime.notification_listener is not None:
+        await runtime.notification_listener.stop()
+
     result = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if result and not hass.config_entries.async_entries(DOMAIN):
         hass.services.async_remove(DOMAIN, SERVICE_CALL_RPC)

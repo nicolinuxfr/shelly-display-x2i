@@ -158,6 +158,7 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             status = await self.client.call("Shelly.GetStatus")
             config = await self.client.call("Shelly.GetConfig")
+            sys_status = await self.client.call("Sys.GetStatus")
             methods_result = await self.client.call("Shelly.ListMethods")
         except ShellyRPCError as err:
             raise UpdateFailed(str(err)) from err
@@ -212,6 +213,7 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         parsed: dict[str, Any] = {
             "status": status,
             "config": config,
+            "sys_status": sys_status,
             "methods": set(m for m in methods if isinstance(m, str)),
             "screen_on": screen_on,
             "brightness_status": brightness_status,

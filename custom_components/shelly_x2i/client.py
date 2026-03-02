@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from typing import Any
 
 import aiohttp
@@ -22,10 +23,26 @@ class ShellyRPCClient:
         username: str | None = None,
         password: str | None = None,
     ) -> None:
+        self._host = host
+        self._port = port
+        self._username = username
+        self._password = password or ""
         self._session = session
         self._url = f"http://{host}:{port}/rpc"
         self._auth = aiohttp.BasicAuth(username, password or "") if username else None
         self._request_id = 0
+
+    @property
+    def ws_url(self) -> str:
+        """Return websocket RPC endpoint URL."""
+        return f"ws://{self._host}:{self._port}/rpc"
+
+    def ws_headers(self) -> dict[str, str]:
+        """Build websocket headers with basic auth when configured."""
+        if not self._username:
+            return {}
+        token = base64.b64encode(f"{self._username}:{self._password}".encode("utf-8")).decode("ascii")
+        return {"Authorization": f"Basic {token}"}
 
     async def call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         """Call a Shelly RPC method."""

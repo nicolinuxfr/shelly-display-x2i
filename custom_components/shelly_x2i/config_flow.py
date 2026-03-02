@@ -17,9 +17,11 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .client import ShellyRPCClient, ShellyRPCError
 from .const import (
+    CONF_ENABLE_NOTIFICATIONS,
     CONF_SCAN_INTERVAL,
     CONF_SOURCE_DEVICE_ID,
     CONF_SOURCE_ENTITY_ID,
+    DEFAULT_ENABLE_NOTIFICATIONS,
     DEFAULT_PORT,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
@@ -483,6 +485,15 @@ class ShellyX2iRPCOptionsFlow(config_entries.OptionsFlow):
                     vol.Coerce(int),
                     vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL),
                 ),
+                vol.Optional(
+                    CONF_ENABLE_NOTIFICATIONS,
+                    default=self._config_entry.options.get(
+                        CONF_ENABLE_NOTIFICATIONS,
+                        self._config_entry.data.get(
+                            CONF_ENABLE_NOTIFICATIONS, DEFAULT_ENABLE_NOTIFICATIONS
+                        ),
+                    ),
+                ): bool,
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)
