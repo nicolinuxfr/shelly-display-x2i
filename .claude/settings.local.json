@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc -l /Users/nicolas/Developer/domotique/shelly-display-x2i/.claude/worktrees/adoring-rhodes/custom_components/shelly_x2i/*.py)",
+      "Bash(git -C /Users/nicolas/Developer/domotique/shelly-display-x2i/.claude/worktrees/adoring-rhodes log --oneline -15)",
+      "Bash(claude mcp add context7 -- npx -y @upstash/context7-mcp)",
+      "Bash(git add .claude/settings.json .claude/settings.local.json .claude/skills/ .claude/agents/)",
+      "Bash(git commit:*)"
+    ]
+  }
+}
