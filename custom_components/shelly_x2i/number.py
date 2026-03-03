@@ -14,22 +14,21 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from . import ShellyX2iRPCRuntimeData
 from .entity import ShellyX2iBaseEntity
 
-_SHELLY_BRIGHTNESS_MAX = 255
 _LOGGER = logging.getLogger(__name__)
 
 
 def _raw_to_percent(raw_level: float) -> int:
-    """Convert Shelly raw brightness level (0..255) to integer percentage."""
-    clamped = max(0.0, min(float(_SHELLY_BRIGHTNESS_MAX), raw_level))
-    return int(round((clamped / float(_SHELLY_BRIGHTNESS_MAX)) * 100.0))
+    """Clamp a firmware brightness level (0..100) to an integer percentage.
+
+    The X2i firmware stores brightness as a percentage in both GetConfig/GetStatus
+    and SetConfig, so no unit conversion is needed here.
+    """
+    return int(round(max(0.0, min(100.0, raw_level))))
 
 
 def _percent_to_raw(percent: float) -> int:
     """Convert Home Assistant percentage (0..100) to Shelly write level."""
-    clamped = max(0.0, min(100.0, percent))
-    # On X2i firmware, Ui.SetConfig expects level as percentage (0..100),
-    # while GetConfig/GetStatus may report a raw hardware level (~0..255).
-    return int(round(clamped))
+    return int(round(max(0.0, min(100.0, percent))))
 
 
 async def async_setup_entry(

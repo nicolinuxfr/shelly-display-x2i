@@ -14,7 +14,6 @@ from .client import ShellyRPCClient, ShellyRPCError
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
-_SHELLY_BRIGHTNESS_READ_MAX = 255
 
 
 def _parse_screen_on(status: dict[str, Any]) -> bool | None:
@@ -66,11 +65,14 @@ def _parse_brightness_config(config: dict[str, Any]) -> int | None:
 
 
 def _normalize_to_percent(level: int | float | None) -> int | None:
-    """Normalize firmware brightness readings to integer percentage."""
+    """Clamp a firmware brightness level (0..100) to an integer percentage.
+
+    The X2i firmware stores brightness as a percentage in both GetConfig/GetStatus
+    and SetConfig, so no unit conversion is needed here.
+    """
     if not isinstance(level, (int, float)):
         return None
-    value = int(round(float(level)))
-    return int(round((max(0, min(_SHELLY_BRIGHTNESS_READ_MAX, value)) / _SHELLY_BRIGHTNESS_READ_MAX) * 100))
+    return int(round(max(0.0, min(100.0, float(level)))))
 
 
 class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
