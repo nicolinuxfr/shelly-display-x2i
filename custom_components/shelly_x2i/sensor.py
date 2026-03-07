@@ -75,7 +75,7 @@ class ShellyX2iSensorDescription(SensorEntityDescription):
 
 SENSOR_DESCRIPTIONS: tuple[ShellyX2iSensorDescription, ...] = (
     ShellyX2iSensorDescription(
-        key="uptime",
+        key="uptime_formatted",
         translation_key="uptime",
         name="Uptime",
         icon="mdi:timer-outline",
@@ -83,7 +83,7 @@ SENSOR_DESCRIPTIONS: tuple[ShellyX2iSensorDescription, ...] = (
         value_fn=_format_uptime,
     ),
     ShellyX2iSensorDescription(
-        key="ram_free",
+        key="ram_free_mb",
         translation_key="ram_free",
         name="Free RAM",
         icon="mdi:memory",
@@ -93,7 +93,7 @@ SENSOR_DESCRIPTIONS: tuple[ShellyX2iSensorDescription, ...] = (
         value_fn=_bytes_to_megabytes(("ram_free",)),
     ),
     ShellyX2iSensorDescription(
-        key="fs_free",
+        key="fs_free_mb",
         translation_key="fs_free",
         name="Free Filesystem",
         icon="mdi:harddisk",
