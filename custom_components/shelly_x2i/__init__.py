@@ -10,7 +10,7 @@ import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
@@ -81,7 +81,7 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up integration services."""
 
-    async def _async_handle_call_rpc(service: ServiceCall) -> None:
+    async def _async_handle_call_rpc(service: ServiceCall) -> dict[str, Any]:
         method: str = service.data[ATTR_METHOD]
         params: dict[str, Any] = service.data.get(ATTR_PARAMS, {})
         entry_id: str | None = service.data.get(ATTR_ENTRY_ID)
@@ -92,12 +92,13 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
         if not entries:
             _LOGGER.warning("No config entry found for service call to method %s", method)
-            return
+            return {"error": f"No config entry found for method {method}"}
 
         entry = entries[0]
         runtime: ShellyX2iRPCRuntimeData = entry.runtime_data
-        await runtime.client.call(method, params)
+        result = await runtime.client.call(method, params)
         await runtime.coordinator.async_request_refresh()
+        return result
 
     if not hass.services.has_service(DOMAIN, SERVICE_CALL_RPC):
         hass.services.async_register(
@@ -105,6 +106,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             SERVICE_CALL_RPC,
             _async_handle_call_rpc,
             schema=SERVICE_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
         )
     return True
 
