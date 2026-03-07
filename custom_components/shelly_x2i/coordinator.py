@@ -18,6 +18,7 @@ from .const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 _POST_ACTION_REFRESH_DELAY = 3.0
 _TRANSIENT_AVAILABILITY_GRACE = 15.0
+_FULL_REFRESH_EVERY = 10
 
 
 def _parse_screen_on(status: dict[str, Any]) -> bool | None:
@@ -101,6 +102,8 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._expected_screen_on: bool | None = None
         self._local_action_until: float = 0.0
         self._scheduled_refresh_task: asyncio.Task[None] | None = None
+        self._methods_set: set[str] | None = None
+        self._refresh_count = 0
 
     @property
     def pending_brightness_level(self) -> int | None:
@@ -192,21 +195,46 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Fetch latest device data."""
         try:
             status = await self.client.call("Shelly.GetStatus")
-            config = await self.client.call("Shelly.GetConfig")
-            methods_result = await self.client.call("Shelly.ListMethods")
         except ShellyRPCError as err:
             raise UpdateFailed(str(err)) from err
 
-        methods = methods_result.get("methods", [])
-        if not isinstance(methods, list):
-            methods = []
-        methods_set = set(m for m in methods if isinstance(m, str))
-        sys_status: dict[str, Any] = {}
-        if "Sys.GetStatus" in methods_set:
+        previous = self.data if isinstance(self.data, dict) else {}
+        refresh_index = self._refresh_count
+        self._refresh_count += 1
+        should_refresh_full = not previous or refresh_index % _FULL_REFRESH_EVERY == 0
+
+        config = previous.get("config", {}) if isinstance(previous.get("config"), dict) else {}
+        if should_refresh_full or not config:
+            try:
+                config = await self.client.call("Shelly.GetConfig")
+            except ShellyRPCError as err:
+                if not config:
+                    raise UpdateFailed(str(err)) from err
+                _LOGGER.debug("Shelly.GetConfig unavailable/failed, keeping cached config: %s", err)
+
+        methods_set = self._methods_set
+        if methods_set is None:
+            try:
+                methods_result = await self.client.call("Shelly.ListMethods")
+                methods = methods_result.get("methods", [])
+                if not isinstance(methods, list):
+                    methods = []
+                methods_set = set(m for m in methods if isinstance(m, str))
+                self._methods_set = methods_set
+            except ShellyRPCError as err:
+                _LOGGER.debug("Shelly.ListMethods unavailable/failed: %s", err)
+                methods_set = set()
+        if methods_set is None:
+            methods_set = set()
+
+        sys_status: dict[str, Any] = (
+            previous.get("sys_status", {}) if isinstance(previous.get("sys_status"), dict) else {}
+        )
+        if "Sys.GetStatus" in methods_set and (should_refresh_full or not sys_status):
             try:
                 sys_status = await self.client.call("Sys.GetStatus")
             except ShellyRPCError as err:
-                _LOGGER.debug("Sys.GetStatus unavailable/failed: %s", err)
+                _LOGGER.debug("Sys.GetStatus unavailable/failed, keeping cached value: %s", err)
         screen_on = _parse_screen_on(status)
         brightness_status = _parse_brightness_status(status)
         brightness_config = _parse_brightness_config(config)
