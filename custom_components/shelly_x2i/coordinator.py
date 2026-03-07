@@ -80,6 +80,12 @@ def _normalize_to_percent(level: int | float | None) -> int | None:
     return int(round(max(0.0, min(100.0, float(level)))))
 
 
+def _ui_config(config: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the UI config subtree when available."""
+    ui_cfg = config.get("ui")
+    return ui_cfg if isinstance(ui_cfg, dict) else None
+
+
 class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Fetch and cache Shelly X2i RPC data."""
 
@@ -164,7 +170,7 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         clamped_level = max(0, min(100, int(level)))
 
         config = self.data.get("config", {})
-        ui_config = config.get("ui") if isinstance(config, dict) else None
+        ui_config = _ui_config(config) if isinstance(config, dict) else None
         brightness_cfg = ui_config.get("brightness") if isinstance(ui_config, dict) else None
 
         if isinstance(brightness_cfg, dict):
@@ -190,6 +196,30 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_set_brightness_level(self, level: int) -> None:
         """Set screen brightness using Ui.SetConfig."""
         await self.client.call("Ui.SetConfig", self._build_brightness_ui_config(level))
+
+    async def async_set_screen_off_when_idle(self, enabled: bool) -> None:
+        """Enable or disable screen power-off when idle."""
+        await self.client.call("Ui.SetConfig", {"config": {"screen_off_when_idle": bool(enabled)}})
+
+    async def async_set_screen_saver_enabled(self, enabled: bool) -> None:
+        """Enable or disable the screen saver while preserving known options."""
+        config = self.data.get("config", {})
+        ui_config = _ui_config(config) if isinstance(config, dict) else None
+        screen_saver_cfg = (
+            deepcopy(ui_config.get("screen_saver")) if isinstance(ui_config.get("screen_saver"), dict) else {}
+        ) if isinstance(ui_config, dict) else {}
+        screen_saver_cfg["enable"] = bool(enabled)
+        await self.client.call("Ui.SetConfig", {"config": {"screen_saver": screen_saver_cfg}})
+
+    async def async_set_screen_saver_timeout(self, timeout_seconds: int) -> None:
+        """Set the screen saver timeout while preserving other screen saver options."""
+        config = self.data.get("config", {})
+        ui_config = _ui_config(config) if isinstance(config, dict) else None
+        screen_saver_cfg = (
+            deepcopy(ui_config.get("screen_saver")) if isinstance(ui_config.get("screen_saver"), dict) else {}
+        ) if isinstance(ui_config, dict) else {}
+        screen_saver_cfg["timeout"] = max(0, int(timeout_seconds))
+        await self.client.call("Ui.SetConfig", {"config": {"screen_saver": screen_saver_cfg}})
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch latest device data."""

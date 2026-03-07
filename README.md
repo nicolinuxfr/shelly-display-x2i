@@ -13,9 +13,12 @@ This integration is intended to complement the official Shelly integration:
 - Manual config flow fallback with IP/host, port, optional credentials
 - `switch`:
   - Screen power (`Ui.Screen.Set`)
+  - Screen off when idle (`Ui.SetConfig`)
+  - Screen saver enable (`Ui.SetConfig`)
   - Bluetooth enable (`BLE.SetConfig`, only when supported by firmware)
 - `number`:
   - Screen brightness (`Ui.SetConfig`)
+  - Screen saver timeout (`Ui.SetConfig`)
 - `button`:
   - Refresh
 - Diagnostic entities from `Sys.GetStatus`:

@@ -51,6 +51,12 @@
       "screen_power": {
         "name": "Screen"
       },
+      "screen_off_when_idle": {
+        "name": "Screen off when idle"
+      },
+      "screen_saver_enabled": {
+        "name": "Screen saver"
+      },
       "ble_enabled": {
         "name": "Bluetooth"
       }
@@ -58,6 +64,9 @@
     "number": {
       "screen_brightness": {
         "name": "Brightness"
+      },
+      "screen_saver_timeout": {
+        "name": "Screen saver timeout"
       }
     },
     "button": {

@@ -8,6 +8,7 @@ from homeassistant.components.number import NumberEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
@@ -36,7 +37,13 @@ async def async_setup_entry(
 ) -> None:
     """Set up number entities."""
     runtime: ShellyX2iRPCRuntimeData = entry.runtime_data
-    async_add_entities([ShellyScreenBrightness(entry, runtime.coordinator, runtime.device_info)], True)
+    async_add_entities(
+        [
+            ShellyScreenBrightness(entry, runtime.coordinator, runtime.device_info),
+            ShellyScreenSaverTimeout(entry, runtime.coordinator, runtime.device_info),
+        ],
+        True,
+    )
 
 
 class ShellyScreenBrightness(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
@@ -138,4 +145,57 @@ class ShellyScreenBrightness(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
         await self.coordinator.async_set_brightness_level(level)
         self._optimistic_value = target_percent_int
         self.async_write_ha_state()
+        self.coordinator.schedule_refresh()
+
+
+class ShellyScreenSaverTimeout(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
+    """Screen saver timeout in seconds."""
+
+    _attr_translation_key = "screen_saver_timeout"
+    _attr_native_min_value = 0
+    _attr_native_max_value = 86400
+    _attr_native_step = 30
+    _attr_native_unit_of_measurement = "s"
+    _attr_mode = "box"
+    _attr_icon = "mdi:timer-cog-outline"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, entry, coordinator, fallback_device_info) -> None:
+        super().__init__(
+            entry=entry,
+            coordinator=coordinator,
+            fallback_device_info=fallback_device_info,
+            key="screen_saver_timeout",
+            name="Screen Saver Timeout",
+        )
+        self._optimistic_value: int | None = None
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last known timeout."""
+        await super().async_added_to_hass()
+        restored = await self.async_get_last_state()
+        if restored is not None:
+            try:
+                self._optimistic_value = max(0, int(round(float(restored.state))))
+            except ValueError:
+                self._optimistic_value = None
+
+    @property
+    def native_value(self) -> int | None:
+        """Return configured screen saver timeout."""
+        config = self.coordinator.data.get("config")
+        ui = config.get("ui") if isinstance(config, dict) else None
+        screen_saver = ui.get("screen_saver") if isinstance(ui, dict) else None
+        timeout = screen_saver.get("timeout") if isinstance(screen_saver, dict) else None
+        if isinstance(timeout, (int, float)):
+            return max(0, int(round(float(timeout))))
+        return self._optimistic_value
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set screen saver timeout through RPC."""
+        timeout = max(0, int(round(float(value))))
+        self._optimistic_value = timeout
+        self.coordinator.mark_local_action()
+        self.async_write_ha_state()
+        await self.coordinator.async_set_screen_saver_timeout(timeout)
         self.coordinator.schedule_refresh()
