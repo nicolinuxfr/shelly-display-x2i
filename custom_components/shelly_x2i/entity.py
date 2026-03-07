@@ -73,6 +73,11 @@ class ShellyX2iBaseEntity(CoordinatorEntity[ShellyX2iRPCDataUpdateCoordinator], 
             self.device_entry = _find_device_from_entity_id(self.hass, self._source_entity_id)
 
     @property
+    def available(self) -> bool:
+        """Hide transient RPC polling failures after local screen/config writes."""
+        return super().available or self.coordinator.assume_available
+
+    @property
     def device_info(self) -> DeviceInfo | None:
         """Return fallback device metadata only when no linked device is used."""
         if self.device_entry is not None:

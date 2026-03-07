@@ -116,6 +116,7 @@ class ShellyScreenBrightness(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
         target_percent = max(0.0, min(100.0, float(value)))
         level = _percent_to_raw(target_percent)
         target_percent_int = int(round(target_percent))
+        self.coordinator.mark_local_action()
         # Keep desired brightness until coordinator confirms device applied it.
         self.coordinator.set_pending_brightness_level(level)
         screen_is_on = self.coordinator.data.get("screen_on")
@@ -136,4 +137,5 @@ class ShellyScreenBrightness(ShellyX2iBaseEntity, NumberEntity, RestoreEntity):
         self.coordinator.set_expected_screen_on(True)
         await self.coordinator.async_set_brightness_level(level)
         self._optimistic_value = target_percent_int
-        await self.coordinator.async_request_refresh()
+        self.async_write_ha_state()
+        self.coordinator.schedule_refresh()

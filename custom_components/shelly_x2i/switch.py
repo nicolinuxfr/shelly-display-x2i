@@ -84,6 +84,7 @@ class ShellyScreenPowerSwitch(ShellyX2iBaseEntity, SwitchEntity, RestoreEntity):
     async def async_turn_on(self, **kwargs) -> None:
         """Turn the screen on."""
         self._optimistic_state = True
+        self.coordinator.mark_local_action()
         self.coordinator.set_expected_screen_on(True)
         self.async_write_ha_state()
         pending_level = self.coordinator.pending_brightness_level
@@ -100,7 +101,7 @@ class ShellyScreenPowerSwitch(ShellyX2iBaseEntity, SwitchEntity, RestoreEntity):
                 await self.coordinator.async_set_brightness_level(pending_level)
                 # Keep pending until coordinator confirms the device really
                 # reports this value in GetConfig/GetStatus.
-            self.hass.async_create_task(self.coordinator.async_request_refresh())
+            self.coordinator.schedule_refresh()
         except ShellyRPCError as err:
             _LOGGER.warning("Failed setting screen power to %s: %s", on, err)
             # Revert optimistic state only if command failed.
@@ -123,6 +124,7 @@ class ShellyScreenPowerSwitch(ShellyX2iBaseEntity, SwitchEntity, RestoreEntity):
                 self.coordinator.set_pending_brightness_level(current_percent)
 
         self._optimistic_state = False
+        self.coordinator.mark_local_action()
         self.coordinator.set_expected_screen_on(False)
         self.async_write_ha_state()
         self.hass.async_create_task(self._async_send_power_command(False, None))
@@ -172,7 +174,7 @@ class ShellyBleEnabledSwitch(ShellyX2iBaseEntity, SwitchEntity, RestoreEntity):
     async def _async_set_ble(self, enabled: bool) -> None:
         try:
             await self.coordinator.client.call("BLE.SetConfig", self._build_setconfig_payload(enabled))
-            self.hass.async_create_task(self.coordinator.async_request_refresh())
+            self.coordinator.schedule_refresh()
         except ShellyRPCError as err:
             _LOGGER.warning("Failed setting BLE to %s: %s", enabled, err)
             self._optimistic_state = not enabled
@@ -181,11 +183,13 @@ class ShellyBleEnabledSwitch(ShellyX2iBaseEntity, SwitchEntity, RestoreEntity):
     async def async_turn_on(self, **kwargs) -> None:
         """Enable BLE."""
         self._optimistic_state = True
+        self.coordinator.mark_local_action()
         self.async_write_ha_state()
         self.hass.async_create_task(self._async_set_ble(True))
 
     async def async_turn_off(self, **kwargs) -> None:
         """Disable BLE."""
         self._optimistic_state = False
+        self.coordinator.mark_local_action()
         self.async_write_ha_state()
         self.hass.async_create_task(self._async_set_ble(False))

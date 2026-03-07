@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 from copy import deepcopy
 import logging
 from datetime import timedelta
+import time
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -14,6 +16,8 @@ from .client import ShellyRPCClient, ShellyRPCError
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+_POST_ACTION_REFRESH_DELAY = 3.0
+_TRANSIENT_AVAILABILITY_GRACE = 15.0
 
 
 def _parse_screen_on(status: dict[str, Any]) -> bool | None:
@@ -95,6 +99,8 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._pending_brightness_level: int | None = None
         self._last_nonzero_brightness_level: int | None = None
         self._expected_screen_on: bool | None = None
+        self._local_action_until: float = 0.0
+        self._scheduled_refresh_task: asyncio.Task[None] | None = None
 
     @property
     def pending_brightness_level(self) -> int | None:
@@ -122,6 +128,33 @@ class ShellyX2iRPCDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def clear_pending_brightness_level(self) -> None:
         """Drop pending brightness level."""
         self._pending_brightness_level = None
+
+    def mark_local_action(self, grace_seconds: float = _TRANSIENT_AVAILABILITY_GRACE) -> None:
+        """Keep entities available while the device applies a local RPC action."""
+        self._local_action_until = max(self._local_action_until, time.monotonic() + grace_seconds)
+
+    @property
+    def assume_available(self) -> bool:
+        """Report transient availability when a recent local action may disrupt polling."""
+        return bool(self.data) and time.monotonic() < self._local_action_until
+
+    def schedule_refresh(self, delay: float = _POST_ACTION_REFRESH_DELAY) -> None:
+        """Refresh after a short delay to let the display settle after RPC writes."""
+        if self._scheduled_refresh_task is not None and not self._scheduled_refresh_task.done():
+            self._scheduled_refresh_task.cancel()
+        self._scheduled_refresh_task = self.hass.async_create_task(
+            self._async_delayed_refresh(delay)
+        )
+
+    async def _async_delayed_refresh(self, delay: float) -> None:
+        """Trigger a refresh after a delay and swallow transient cancellation."""
+        try:
+            await asyncio.sleep(delay)
+            await self.async_request_refresh()
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:  # pragma: no cover - defensive logging
+            _LOGGER.debug("Delayed Shelly refresh failed: %s", err)
 
     def _build_brightness_ui_config(self, level: int) -> dict[str, Any]:
         """Build a firmware-compatible Ui.SetConfig payload for brightness."""
