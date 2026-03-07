@@ -20,13 +20,6 @@ def _restart_required(sys_status: dict) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
-def _updates_available(sys_status: dict) -> bool:
-    updates = sys_status.get("available_updates")
-    if not isinstance(updates, dict):
-        return False
-    return any(isinstance(v, dict) and bool(v) for v in updates.values())
-
-
 @dataclass(frozen=True, kw_only=True)
 class ShellyX2iBinarySensorDescription(BinarySensorEntityDescription):
     """Description for Shelly diagnostics binary sensor."""
@@ -43,14 +36,6 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[ShellyX2iBinarySensorDescription, ...] = (
         icon="mdi:restart-alert",
         entity_category=EntityCategory.DIAGNOSTIC,
         is_on_fn=_restart_required,
-    ),
-    ShellyX2iBinarySensorDescription(
-        key="updates_available",
-        translation_key="updates_available",
-        name="Updates Available",
-        icon="mdi:update",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        is_on_fn=_updates_available,
     ),
 )
 

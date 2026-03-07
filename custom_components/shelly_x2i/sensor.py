@@ -7,7 +7,6 @@ from typing import Callable
 
 from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfInformation, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -32,6 +31,40 @@ def _sys_value(path: tuple[str, ...]) -> Callable[[dict], int | float | str | No
     return _getter
 
 
+def _format_uptime(seconds: dict) -> str | None:
+    """Format uptime seconds into a human-readable duration."""
+    raw_value = _sys_value(("uptime",))(seconds)
+    if not isinstance(raw_value, (int, float)):
+        return None
+
+    total_seconds = max(int(raw_value), 0)
+    days, remainder = divmod(total_seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, _ = divmod(remainder, 60)
+
+    parts: list[str] = []
+    if days:
+        parts.append(f"{days}j")
+    if days or hours:
+        parts.append(f"{hours}h")
+    parts.append(f"{minutes}min")
+    return " ".join(parts)
+
+
+def _bytes_to_megabytes(path: tuple[str, ...]) -> Callable[[dict], float | None]:
+    """Convert a nested byte value to megabytes."""
+
+    getter = _sys_value(path)
+
+    def _converter(sys_status: dict) -> float | None:
+        raw_value = getter(sys_status)
+        if not isinstance(raw_value, (int, float)):
+            return None
+        return round(float(raw_value) / (1024 * 1024), 1)
+
+    return _converter
+
+
 @dataclass(frozen=True, kw_only=True)
 class ShellyX2iSensorDescription(SensorEntityDescription):
     """Description for Shelly diagnostics sensor."""
@@ -46,29 +79,28 @@ SENSOR_DESCRIPTIONS: tuple[ShellyX2iSensorDescription, ...] = (
         translation_key="uptime",
         name="Uptime",
         icon="mdi:timer-outline",
-        native_unit_of_measurement=UnitOfTime.SECONDS,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=_sys_value(("uptime",)),
+        value_fn=_format_uptime,
     ),
     ShellyX2iSensorDescription(
         key="ram_free",
         translation_key="ram_free",
         name="Free RAM",
         icon="mdi:memory",
-        native_unit_of_measurement=UnitOfInformation.BYTES,
-        suggested_display_precision=0,
+        native_unit_of_measurement="Mo",
+        suggested_display_precision=1,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=_sys_value(("ram_free",)),
+        value_fn=_bytes_to_megabytes(("ram_free",)),
     ),
     ShellyX2iSensorDescription(
         key="fs_free",
         translation_key="fs_free",
         name="Free Filesystem",
         icon="mdi:harddisk",
-        native_unit_of_measurement=UnitOfInformation.BYTES,
-        suggested_display_precision=0,
+        native_unit_of_measurement="Mo",
+        suggested_display_precision=1,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=_sys_value(("fs_free",)),
+        value_fn=_bytes_to_megabytes(("fs_free",)),
     ),
 )
 
