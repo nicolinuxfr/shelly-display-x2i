@@ -198,22 +198,21 @@ class ShellyBleEnabledSwitch(ShellyX2iBaseEntity, SwitchEntity, RestoreEntity):
         self.hass.async_create_task(self._async_set_ble(False))
 
 
-class ShellyUiConfigSwitch(ShellyX2iBaseEntity, SwitchEntity, RestoreEntity):
-    """Base switch for UI config booleans."""
+class ShellyScreenOffWhenIdleSwitch(ShellyX2iBaseEntity, SwitchEntity, RestoreEntity):
+    """Whether the display should power off after firmware-defined idle."""
 
-    _ui_key: str
+    _attr_translation_key = "screen_off_when_idle"
+    _attr_icon = "mdi:power-sleep"
     _attr_entity_category = EntityCategory.CONFIG
 
-    def __init__(self, entry, coordinator, fallback_device_info, *, key: str, name: str, icon: str) -> None:
+    def __init__(self, entry, coordinator, fallback_device_info) -> None:
         super().__init__(
             entry=entry,
             coordinator=coordinator,
             fallback_device_info=fallback_device_info,
-            key=key,
-            name=name,
+            key="screen_off_when_idle",
+            name="Screen Off When Idle",
         )
-        self._attr_translation_key = key
-        self._attr_icon = icon
         self._optimistic_state: bool | None = None
 
     async def async_added_to_hass(self) -> None:
@@ -223,89 +222,81 @@ class ShellyUiConfigSwitch(ShellyX2iBaseEntity, SwitchEntity, RestoreEntity):
         if restored is not None:
             self._optimistic_state = restored.state == "on"
 
-    def _read_value(self) -> bool | None:
-        raise NotImplementedError
-
-    async def _async_set_value(self, enabled: bool) -> None:
-        raise NotImplementedError
-
     @property
     def is_on(self) -> bool | None:
-        """Return current config value."""
-        state = self._read_value()
-        if isinstance(state, bool):
-            return state
-        return self._optimistic_state
-
-    async def async_turn_on(self, **kwargs) -> None:
-        """Enable the config value."""
-        self._optimistic_state = True
-        self.coordinator.mark_local_action()
-        self.async_write_ha_state()
-        try:
-            await self._async_set_value(True)
-            self.coordinator.schedule_refresh()
-        except ShellyRPCError:
-            self._optimistic_state = False
-            self.async_write_ha_state()
-            raise
-
-    async def async_turn_off(self, **kwargs) -> None:
-        """Disable the config value."""
-        self._optimistic_state = False
-        self.coordinator.mark_local_action()
-        self.async_write_ha_state()
-        try:
-            await self._async_set_value(False)
-            self.coordinator.schedule_refresh()
-        except ShellyRPCError:
-            self._optimistic_state = True
-            self.async_write_ha_state()
-            raise
-
-
-class ShellyScreenOffWhenIdleSwitch(ShellyUiConfigSwitch):
-    """Whether the display should power off after firmware-defined idle."""
-
-    def __init__(self, entry, coordinator, fallback_device_info) -> None:
-        super().__init__(
-            entry,
-            coordinator,
-            fallback_device_info,
-            key="screen_off_when_idle",
-            name="Screen Off When Idle",
-            icon="mdi:power-sleep",
-        )
-
-    def _read_value(self) -> bool | None:
+        """Return whether the device powers off the screen when idle."""
         config = self.coordinator.data.get("config")
         ui = config.get("ui") if isinstance(config, dict) else None
         value = ui.get("screen_off_when_idle") if isinstance(ui, dict) else None
-        return value if isinstance(value, bool) else None
+        if isinstance(value, bool):
+            return value
+        return self._optimistic_state
 
-    async def _async_set_value(self, enabled: bool) -> None:
-        await self.coordinator.async_set_screen_off_when_idle(enabled)
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable screen off when idle."""
+        self._optimistic_state = True
+        self.coordinator.mark_local_action()
+        self.async_write_ha_state()
+        await self.coordinator.async_set_screen_off_when_idle(True)
+        self.coordinator.schedule_refresh()
 
 
-class ShellyScreenSaverEnabledSwitch(ShellyUiConfigSwitch):
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable screen off when idle."""
+        self._optimistic_state = False
+        self.coordinator.mark_local_action()
+        self.async_write_ha_state()
+        await self.coordinator.async_set_screen_off_when_idle(False)
+        self.coordinator.schedule_refresh()
+
+
+class ShellyScreenSaverEnabledSwitch(ShellyX2iBaseEntity, SwitchEntity, RestoreEntity):
     """Whether the display screen saver is enabled."""
+
+    _attr_translation_key = "screen_saver_enabled"
+    _attr_icon = "mdi:monitor-shimmer"
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(self, entry, coordinator, fallback_device_info) -> None:
         super().__init__(
-            entry,
-            coordinator,
-            fallback_device_info,
+            entry=entry,
+            coordinator=coordinator,
+            fallback_device_info=fallback_device_info,
             key="screen_saver_enabled",
             name="Screen Saver",
-            icon="mdi:monitor-shimmer",
         )
+        self._optimistic_state: bool | None = None
 
-    def _read_value(self) -> bool | None:
+    async def async_added_to_hass(self) -> None:
+        """Restore last known state."""
+        await super().async_added_to_hass()
+        restored = await self.async_get_last_state()
+        if restored is not None:
+            self._optimistic_state = restored.state == "on"
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return whether the screen saver is enabled."""
         config = self.coordinator.data.get("config")
         ui = config.get("ui") if isinstance(config, dict) else None
         screen_saver = ui.get("screen_saver") if isinstance(ui, dict) else None
         value = screen_saver.get("enable") if isinstance(screen_saver, dict) else None
-        return value if isinstance(value, bool) else None
+        if isinstance(value, bool):
+            return value
+        return self._optimistic_state
 
-    async def _async_set_value(self, enabled: bool) -> None:
-        await self.coordinator.async_set_screen_saver_enabled(enabled)
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable the screen saver."""
+        self._optimistic_state = True
+        self.coordinator.mark_local_action()
+        self.async_write_ha_state()
+        await self.coordinator.async_set_screen_saver_enabled(True)
+        self.coordinator.schedule_refresh()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable the screen saver."""
+        self._optimistic_state = False
+        self.coordinator.mark_local_action()
+        self.async_write_ha_state()
+        await self.coordinator.async_set_screen_saver_enabled(False)
+        self.coordinator.schedule_refresh()
